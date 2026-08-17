@@ -20,6 +20,7 @@ the webmail** — change them here, then re-sync.
 | Key table (−k): generate/import/backup/delete, rings per address | ✓ | ✓ | shared core |
 | Sealer (−d): encrypt/decrypt text | ✓ | ✓ | shared core |
 | WKD recipient lookup | ✓ | ✓ | webmail: directory first, WKD fallback |
+| Named themes (Paper…Phosphor) | ✓ | ✓ | shared palette family, not shared code |
 | Paste-a-public-key recipient | ✓ | planned | |
 | Kaditham directory publish | via pairing (planned) | ✓ | service feature, not core |
 | Zero-access storage toggle | n/a | ✓ (Settings) | server feature |
