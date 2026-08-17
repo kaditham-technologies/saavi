@@ -1,0 +1,339 @@
+// Saavi keystore + OpenPGP operations. OpenPGP.js only: keys are
+// generated client-side, the private key never leaves this device unencrypted,
+// and the server only ever holds public keys (registry) and ciphertext.
+//
+// v2 model — a keyring per address:
+//  - ONE active key: it is what the registry publishes, what signs, and what
+//    new letters are encrypted to.
+//  - Rotating (generate or import while a key exists) RETIRES the old key
+//    instead of destroying it: retired private keys stay on the device so
+//    letters encrypted to them still open. Each key keeps its own passphrase.
+//  - localStorage is device-bound; backups are per-key downloads.
+import * as openpgp from 'openpgp';
+
+const STORE_PREFIX = 'saavi-ring-';
+
+export interface KeyRecord {
+  publicKey: string;
+  privateKey: string;   // armored, passphrase-encrypted
+  created: string;
+}
+
+export interface KeyRing {
+  active: KeyRecord;
+  retired: KeyRecord[];
+}
+
+export interface KeyInfo {
+  fingerprint: string;   // formatted, 4-char groups
+  created: string;
+  isActive: boolean;
+  unlocked: boolean;
+}
+
+// Unlocked private keys for this session, by raw (unformatted) fingerprint.
+const sessionKeys = new Map<string, openpgp.PrivateKey>();
+let activeSessionFpr: string | null = null;
+// Which unlocked fingerprint is the ACTIVE key of which address — so a
+// multi-identity account signs with the From address's key, not whichever
+// ring was unlocked last.
+const activeByEmail = new Map<string, string>();
+
+export function clearSession(): void {
+  sessionKeys.clear();
+  activeSessionFpr = null;
+  activeByEmail.clear();
+}
+
+function load(email: string): KeyRing | null {
+  const raw = localStorage.getItem(STORE_PREFIX + email.toLowerCase());
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.active) return parsed as KeyRing;
+    if (parsed.publicKey) {
+      // v1 shape (a bare record) — migrate in place.
+      const ring: KeyRing = { active: parsed as KeyRecord, retired: [] };
+      save(email, ring);
+      return ring;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function save(email: string, ring: KeyRing): void {
+  localStorage.setItem(STORE_PREFIX + email.toLowerCase(), JSON.stringify(ring));
+}
+
+/** The ACTIVE key record (what signs and what the registry holds). */
+export function keysFor(email: string): KeyRecord | null {
+  return load(email)?.active ?? null;
+}
+
+export function ringFor(email: string): KeyRing | null {
+  return load(email);
+}
+
+function fmtFpr(raw: string): string {
+  return raw.toUpperCase().replace(/(.{4})/g, '$1 ').trim();
+}
+
+async function rawFingerprint(rec: KeyRecord): Promise<string> {
+  return (await openpgp.readKey({ armoredKey: rec.publicKey })).getFingerprint();
+}
+
+/** Formatted fingerprint (4-char groups) for out-of-band verification. */
+export async function fingerprintOf(armoredPublicKey: string): Promise<string> {
+  const key = await openpgp.readKey({ armoredKey: armoredPublicKey });
+  return fmtFpr(key.getFingerprint());
+}
+
+/** Adopt a new active record, retiring any current active key. */
+function adopt(email: string, rec: KeyRecord): void {
+  const ring = load(email);
+  if (ring) {
+    save(email, { active: rec, retired: [ring.active, ...ring.retired] });
+  } else {
+    save(email, { active: rec, retired: [] });
+  }
+}
+
+export type KeyAlgo = 'curve25519' | 'rsa4096';
+
+export async function generateKeys(
+  email: string,
+  name: string,
+  passphrase: string,
+  algo: KeyAlgo = 'curve25519'
+): Promise<KeyRecord> {
+  const base = {
+    userIDs: [{ name: name || email, email }],
+    passphrase,
+    format: 'armored' as const,
+  };
+  const { privateKey, publicKey } =
+    algo === 'rsa4096'
+      ? await openpgp.generateKey({ ...base, type: 'rsa' as const, rsaBits: 4096 })
+      : await openpgp.generateKey({ ...base, type: 'ecc' as const, curve: 'curve25519Legacy' as const });
+  const rec: KeyRecord = { publicKey, privateKey, created: new Date().toISOString() };
+  adopt(email, rec);
+  return rec;
+}
+
+/**
+ * Import an existing key — a Kaditham backup file or any ASCII-armored GPG
+ * private key export — as the NEW ACTIVE key. The passphrase must be the one
+ * that unlocks that key (we verify by actually unlocking before anything is
+ * stored); a cleartext export is locked with the given passphrase first.
+ * A previously active key is retired, not destroyed.
+ */
+export async function importKey(email: string, armoredSource: string, passphrase: string): Promise<KeyRecord> {
+  const block = armoredSource.match(
+    /-----BEGIN PGP PRIVATE KEY BLOCK-----[\s\S]*?-----END PGP PRIVATE KEY BLOCK-----/
+  );
+  if (!block) {
+    throw new Error('No PGP private key found. Paste an ASCII-armored export (gpg --export-secret-keys --armor) or a Kaditham backup file.');
+  }
+  const parsed = await openpgp.readPrivateKey({ armoredKey: block[0] });
+  let unlocked: openpgp.PrivateKey;
+  let storedArmor: string;
+  if (parsed.isDecrypted()) {
+    unlocked = parsed;
+    storedArmor = (await openpgp.encryptKey({ privateKey: parsed, passphrase })).armor();
+  } else {
+    try {
+      unlocked = await openpgp.decryptKey({ privateKey: parsed, passphrase });
+    } catch {
+      throw new Error('That passphrase does not unlock this key.');
+    }
+    storedArmor = block[0];
+  }
+  const rec: KeyRecord = {
+    publicKey: unlocked.toPublic().armor(),
+    privateKey: storedArmor,
+    created: new Date().toISOString(),
+  };
+  adopt(email, rec);
+  const fpr = unlocked.getFingerprint();
+  sessionKeys.set(fpr, unlocked);   // verified above — starts unlocked
+  activeSessionFpr = fpr;
+  activeByEmail.set(email.toLowerCase(), fpr);
+  return rec;
+}
+
+
+
+/**
+ * Unlock a private key for this session. Default: the active key. Pass a
+ * (formatted or raw) fingerprint to unlock a specific — e.g. retired — key.
+ */
+export async function unlockPrivateKey(email: string, passphrase: string, fingerprint?: string): Promise<void> {
+  const ring = load(email);
+  if (!ring) throw new Error('No encryption keys on this device.');
+  const want = fingerprint?.replace(/\s+/g, '').toLowerCase() ?? null;
+  const candidates = [ring.active, ...ring.retired];
+  let target: KeyRecord | null = null;
+  if (want) {
+    for (const rec of candidates) {
+      if ((await rawFingerprint(rec)).toLowerCase() === want) { target = rec; break; }
+    }
+    if (!target) throw new Error('That key is not on this device.');
+  } else {
+    target = ring.active;
+  }
+  const locked = await openpgp.readPrivateKey({ armoredKey: target.privateKey });
+  const unlocked = await openpgp.decryptKey({ privateKey: locked, passphrase });
+  const fpr = unlocked.getFingerprint();
+  sessionKeys.set(fpr, unlocked);
+  if (target === ring.active) {
+    activeSessionFpr = fpr;
+    activeByEmail.set(email.toLowerCase(), fpr);
+  }
+}
+
+/** True when the ACTIVE key is unlocked — for a specific address when given,
+ *  else for whichever ring was unlocked most recently. */
+export function isUnlocked(email?: string): boolean {
+  if (email) {
+    const fpr = activeByEmail.get(email.toLowerCase());
+    return fpr !== undefined && sessionKeys.has(fpr);
+  }
+  return activeSessionFpr !== null && sessionKeys.has(activeSessionFpr);
+}
+
+/** Encrypt — signed with the given address's active key when it is unlocked
+ *  (falls back to the most recently unlocked key). */
+export async function encryptText(text: string, armoredPublicKeys: string[], signerEmail?: string): Promise<string> {
+  const encryptionKeys = await Promise.all(armoredPublicKeys.map((k) => openpgp.readKey({ armoredKey: k })));
+  const message = await openpgp.createMessage({ text });
+  const signerFpr = (signerEmail ? activeByEmail.get(signerEmail.toLowerCase()) : null) ?? activeSessionFpr;
+  const signer = signerFpr ? sessionKeys.get(signerFpr) : null;
+  return String(await openpgp.encrypt({
+    message,
+    encryptionKeys,
+    ...(signer ? { signingKeys: signer } : {}),
+  }));
+}
+
+export function looksEncrypted(text: string): boolean {
+  return text.includes('-----BEGIN PGP MESSAGE-----');
+}
+
+export interface DecryptResult {
+  text: string;
+  signedBy: string | null;   // email of a VERIFIED signer, else null
+}
+
+/** Decrypt with whichever session key fits; throws Error('locked') when the
+ *  needed key is on the device but not unlocked (see neededKeyFor). */
+export async function decryptText(armored: string, senderPublicKey?: string | null): Promise<DecryptResult> {
+  if (!sessionKeys.size) throw new Error('locked');
+  const message = await openpgp.readMessage({ armoredMessage: armored.trim() });
+  const verificationKeys = senderPublicKey ? [await openpgp.readKey({ armoredKey: senderPublicKey })] : undefined;
+  let data: unknown;
+  let signatures: Awaited<ReturnType<typeof openpgp.decrypt>>['signatures'] | undefined;
+  try {
+    ({ data, signatures } = await openpgp.decrypt({
+      message,
+      decryptionKeys: [...sessionKeys.values()],
+      ...(verificationKeys ? { verificationKeys } : {}),
+    }));
+  } catch {
+    throw new Error('locked');
+  }
+  let signedBy: string | null = null;
+  if (signatures?.length && verificationKeys) {
+    try {
+      await signatures[0].verified;
+      signedBy = verificationKeys[0].users[0]?.userID?.email ?? 'verified';
+    } catch { signedBy = null; }
+  }
+  return { text: String(data), signedBy };
+}
+
+/**
+ * Which stored key does this ciphertext want? Matches the message's
+ * encryption key IDs against every key (and subkey) on the ring. Null when
+ * no stored key fits (encrypted to someone else / a lost key).
+ */
+export async function neededKeyFor(email: string, armored: string): Promise<KeyInfo | null> {
+  const ring = load(email);
+  if (!ring) return null;
+  let wanted: string[];
+  try {
+    const message = await openpgp.readMessage({ armoredMessage: armored.trim() });
+    wanted = message.getEncryptionKeyIDs().map((id) => id.toHex().toLowerCase());
+  } catch {
+    return null;
+  }
+  const candidates = [ring.active, ...ring.retired];
+  for (const rec of candidates) {
+    const key = await openpgp.readKey({ armoredKey: rec.publicKey });
+    const ids = key.getKeys().map((k) => k.getKeyID().toHex().toLowerCase());
+    if (ids.some((id) => wanted.includes(id))) {
+      const fpr = key.getFingerprint();
+      return {
+        fingerprint: fmtFpr(fpr),
+        created: rec.created,
+        isActive: rec === ring.active,
+        unlocked: sessionKeys.has(fpr),
+      };
+    }
+  }
+  return null;
+}
+
+/** Every key on the ring, active first — for the settings manager. */
+export async function listKeys(email: string): Promise<KeyInfo[]> {
+  const ring = load(email);
+  if (!ring) return [];
+  const out: KeyInfo[] = [];
+  for (const [i, rec] of [ring.active, ...ring.retired].entries()) {
+    const fpr = await rawFingerprint(rec);
+    out.push({
+      fingerprint: fmtFpr(fpr),
+      created: rec.created,
+      isActive: i === 0,
+      unlocked: sessionKeys.has(fpr),
+    });
+  }
+  return out;
+}
+
+/** Remove a RETIRED key from this device (the active key cannot be deleted). */
+export async function deleteRetired(email: string, fingerprint: string): Promise<void> {
+  const ring = load(email);
+  if (!ring) return;
+  const want = fingerprint.replace(/\s+/g, '').toLowerCase();
+  const keep: KeyRecord[] = [];
+  for (const rec of ring.retired) {
+    if ((await rawFingerprint(rec)).toLowerCase() !== want) keep.push(rec);
+  }
+  save(email, { active: ring.active, retired: keep });
+}
+
+/** Offer a (passphrase-encrypted) private key as a downloadable backup —
+ *  the active key by default, or any key on the ring by fingerprint. */
+export async function downloadBackup(email: string, fingerprint?: string): Promise<void> {
+  const ring = load(email);
+  if (!ring) return;
+  let rec: KeyRecord | null = fingerprint ? null : ring.active;
+  if (fingerprint) {
+    const want = fingerprint.replace(/\s+/g, '').toLowerCase();
+    for (const r of [ring.active, ...ring.retired]) {
+      if ((await rawFingerprint(r)).toLowerCase() === want) { rec = r; break; }
+    }
+  }
+  if (!rec) return;
+  const blob = new Blob(
+    [`Saavi key backup — ${email}\nKeep this file and your passphrase somewhere safe. Without both, encrypted letters cannot be read.\n\n${rec.privateKey}\n\n${rec.publicKey}\n`],
+    { type: 'text/plain' }
+  );
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `saavi-key-backup-${email.replace(/[^a-z0-9.@-]/gi, '_')}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}

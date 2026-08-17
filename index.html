@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Saavi</title>
+</head>
+<body>
+  <div class="app">
+    <header class="bar">
+      <div class="brand"><span class="mark">சா</span><b>Saavi</b><span class="sub">the friendliest face of GPG</span></div>
+      <nav class="tabs" role="tablist" aria-label="Mode">
+        <button id="tab-keys" class="tab on" role="tab" aria-selected="true">−k Keys</button>
+        <button id="tab-seal" class="tab" role="tab" aria-selected="false">−d Encrypt/Decrypt</button>
+      </nav>
+    </header>
+
+    <!-- −k : the keyring -->
+    <section id="view-keys" class="view">
+      <div class="toolbar">
+        <button id="act-new" class="tool"><span class="ico" data-ico="plus"></span><span>New key</span></button>
+        <button id="act-import" class="tool"><span class="ico" data-ico="import"></span><span>Import</span></button>
+        <button id="act-backup" class="tool" disabled><span class="ico" data-ico="save"></span><span>Backup</span></button>
+        <button id="act-delete" class="tool" disabled><span class="ico" data-ico="trash"></span><span>Delete</span></button>
+        <button id="act-refresh" class="tool"><span class="ico" data-ico="refresh"></span><span>Refresh</span></button>
+      </div>
+      <div class="cols">
+        <span></span><span>Address</span><span>Key ID</span><span>Created</span><span class="c-end">Status</span>
+      </div>
+      <div id="rows" class="rows" role="listbox" aria-label="Keys"></div>
+      <div id="status" class="status">…</div>
+    </section>
+
+    <!-- −d : the sealer -->
+    <section id="view-seal" class="view" hidden>
+      <div class="seal-grid">
+        <label class="fld"><span>To (addresses — keys found via WKD — or paste a public key)</span>
+          <input id="seal-to" type="text" placeholder="ada@example.org, grace@proton.me" />
+        </label>
+        <label class="fld"><span>Text</span>
+          <textarea id="seal-in" rows="9" placeholder="Write or paste — plain text to seal, or an armored PGP message to unseal."></textarea>
+        </label>
+        <div class="seal-acts">
+          <button id="seal-enc" class="primary">Seal</button>
+          <button id="seal-dec">Unseal</button>
+          <button id="seal-copy" hidden>Copy result</button>
+        </div>
+        <p id="seal-err" class="error" role="alert" hidden></p>
+        <label class="fld" id="seal-out-fld" hidden><span id="seal-out-label">Result</span>
+          <textarea id="seal-out" rows="9" readonly></textarea>
+        </label>
+      </div>
+    </section>
+  </div>
+
+  <!-- key setup / unlock -->
+  <div id="modal" class="veil" hidden>
+    <form id="modal-form" class="card">
+      <h2 id="modal-title">New key</h2>
+      <p id="modal-sub" class="hint"></p>
+      <div id="modal-src" class="seg" hidden>
+        <button type="button" data-src="generate" class="on">Generate</button>
+        <button type="button" data-src="import">Import</button>
+      </div>
+      <div id="f-gen">
+        <label class="fld"><span>Name</span><input id="m-name" type="text" autocomplete="name" /></label>
+        <label class="fld"><span>Email address</span><input id="m-email" type="email" autocomplete="email" /></label>
+        <label class="fld"><span>Algorithm</span>
+          <select id="m-algo">
+            <option value="curve25519">Curve25519 (recommended)</option>
+            <option value="rsa4096">RSA-4096 (legacy interop)</option>
+          </select>
+        </label>
+      </div>
+      <div id="f-imp" hidden>
+        <label class="fld"><span>Armored private key or Saavi backup</span>
+          <textarea id="m-import" rows="5" spellcheck="false"></textarea>
+        </label>
+        <label class="fld"><span>Email address it belongs to</span><input id="m-email2" type="email" /></label>
+      </div>
+      <label class="fld"><span>Passphrase</span><input id="m-pass" type="password" autocomplete="new-password" /></label>
+      <label class="fld" id="f-pass2"><span>Passphrase, again</span><input id="m-pass2" type="password" /></label>
+      <p id="m-strength" class="hint"></p>
+      <p id="m-err" class="error" role="alert" hidden></p>
+      <div class="card-acts">
+        <button type="button" id="m-cancel">Cancel</button>
+        <button type="submit" id="m-go" class="primary">Continue</button>
+      </div>
+    </form>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
