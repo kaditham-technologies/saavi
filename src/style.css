@@ -148,7 +148,7 @@ button { cursor: pointer; }
   transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out),
     border-color 0.15s var(--ease-out), transform 0.15s var(--ease-out);
 }
-.primary { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; }
+.primary { background: var(--accent-strong, var(--accent)) !important; border-color: var(--accent-strong, var(--accent)) !important; color: #fff !important; }
 .primary:hover { transform: translateY(-1px); box-shadow: 0 4px 14px var(--accent-soft); }
 .seal-acts button:hover, .card-acts button:hover { border-color: var(--accent); color: var(--accent); }
 .error { color: #c0392b; font-size: 13px; }
@@ -198,43 +198,65 @@ button { cursor: pointer; }
 }
 .tabs { margin-left: 10px; }
 
-/* Explicit themes beat the OS preference: light themes re-assert the full
-   light set, dark themes the dark set. No class = System. */
-body.theme-paper, body.theme-aurora, body.theme-solarium {
-  --paper: #faf9f7; --paper-2: #f2f0ea; --card: #ffffff;
-  --ink: #17161d; --ink-2: #45434e; --ink-3: #6c6975;
-  --accent: #5b21b6; --accent-soft: #ede7f9;
-  --hairline: #e3e0d8; --border: #dad6cc;
-}
-body.theme-aurora {
-  --paper: #f4f3fb; --paper-2: #eae8f7; --hairline: #e0ddf0; --border: #d2cfe8;
-  --accent: #6d28d9; --accent-soft: #e9e2fb;
-}
-body.theme-solarium {
-  --paper: #f4f8f1; --paper-2: #e9f1e4; --card: #fdfffb;
-  --ink: #16211a; --ink-2: #3f4f45; --ink-3: #5f7266;
-  --accent: #1a7f4e; --accent-soft: #ddf0e2;
-  --hairline: #dbe7d6; --border: #c6d9c2;
-}
-body.theme-ink, body.theme-nocturne, body.theme-phosphor {
-  --paper: #17171b; --paper-2: #1e1e24; --card: #26262d;
-  --ink: #eceaf2; --ink-2: #b8b6c2; --ink-3: #a5a3b0;
-  --accent: #8a70f5; --accent-soft: rgba(138, 112, 245, 0.18);
-  --hairline: #2b2b33; --border: #383842;
-}
-body.theme-nocturne {
-  --paper: #120d24; --paper-2: #191233; --card: #211843;
-  --ink: #efeafd; --ink-2: #c3b8e8; --ink-3: #a396d2;
-  --accent: #a78bfa; --accent-soft: rgba(167, 139, 250, 0.2);
-  --hairline: #2a2050; --border: #383063;
-}
+body.theme-phosphor .primary { color: #04170d !important; }
+body.theme-phosphor ::selection { background: rgba(46, 229, 133, 0.25); }
+
+
+/* ============ Varnam (வர்ணம்) — the theme engine (shared family) ======== */
+/* Six seed numbers per theme; every token derived in OKLCH. The static
+   tokens at the top of this file remain the old-browser fallback. */
+:root { --v-hue: 85; --v-tint: 0.007; --v-ahue: 296; --v-ac: 0.2; --v-k: 1; }
+body.theme-paper { --v-hue: 85; --v-tint: 0.007; --v-ahue: 296; --v-ac: 0.2; }
+body.theme-aurora { --v-hue: 288; --v-tint: 0.013; --v-ahue: 292; --v-ac: 0.21; }
+body.theme-solarium { --v-hue: 140; --v-tint: 0.014; --v-ahue: 154; --v-ac: 0.13; }
+body.theme-ink { --v-hue: 290; --v-tint: 0.012; --v-ahue: 288; --v-ac: 0.18; }
+body.theme-nocturne { --v-hue: 296; --v-tint: 0.045; --v-ahue: 290; --v-ac: 0.2; }
 body.theme-phosphor {
-  --paper: #060a08; --paper-2: #0b120e; --card: #0e1712;
-  --ink: #d7f7e1; --ink-2: #9fd8b4; --ink-3: #6fa886;
-  --accent: #2ee585; --accent-soft: rgba(46, 229, 133, 0.14);
-  --hairline: #16281d; --border: #1f3628;
+  --v-hue: 158; --v-tint: 0.02; --v-ahue: 152; --v-ac: 0.2;
   --sans: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --serif: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
-body.theme-phosphor .primary { color: #04170d !important; }
-body.theme-phosphor ::selection { background: rgba(46, 229, 133, 0.25); }
+
+@supports (color: oklch(from red l c h)) {
+  body.theme-paper, body.theme-aurora, body.theme-solarium, body:not([class*='theme-']) {
+    --paper: oklch(97.4% var(--v-tint) var(--v-hue));
+    --paper-2: oklch(94.3% calc(var(--v-tint) * 1.35) var(--v-hue));
+    --card: oklch(99.1% calc(var(--v-tint) * 0.5) var(--v-hue));
+    --ink: oklch(calc(36% - 16% * var(--v-k)) 0.024 var(--v-hue));
+    --ink-2: oklch(calc(53% - 13% * var(--v-k)) 0.02 var(--v-hue));
+    --ink-3: oklch(calc(67% - 12% * var(--v-k)) 0.018 var(--v-hue));
+    --hairline: oklch(91.3% calc(var(--v-tint) * 1.6) var(--v-hue));
+    --border: oklch(87.2% calc(var(--v-tint) * 1.9) var(--v-hue));
+    --accent: oklch(46% var(--v-ac) var(--v-ahue));
+    --accent-strong: oklch(46% var(--v-ac) var(--v-ahue));
+    --accent-soft: oklch(93.5% calc(var(--v-ac) * 0.22) var(--v-ahue));
+  }
+  body.theme-ink, body.theme-nocturne, body.theme-phosphor {
+    --paper: oklch(21% calc(var(--v-tint) * 1.1) var(--v-hue));
+    --paper-2: oklch(25% calc(var(--v-tint) * 1.2) var(--v-hue));
+    --card: oklch(28.5% calc(var(--v-tint) * 1.25) var(--v-hue));
+    --ink: oklch(calc(79% + 14% * var(--v-k)) 0.014 var(--v-hue));
+    --ink-2: oklch(calc(66% + 11% * var(--v-k)) 0.02 var(--v-hue));
+    --ink-3: oklch(calc(58% + 11% * var(--v-k)) 0.02 var(--v-hue));
+    --hairline: oklch(31.5% calc(var(--v-tint) * 1.4) var(--v-hue));
+    --border: oklch(37.5% calc(var(--v-tint) * 1.5) var(--v-hue));
+    --accent: oklch(74% calc(var(--v-ac) * 0.85) var(--v-ahue));
+    --accent-strong: oklch(56% var(--v-ac) var(--v-ahue));
+    --accent-soft: oklch(70% calc(var(--v-ac) * 0.9) var(--v-ahue) / 0.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    body:not([class*='theme-']) {
+      --paper: oklch(21% calc(var(--v-tint) * 1.1) var(--v-hue));
+      --paper-2: oklch(25% calc(var(--v-tint) * 1.2) var(--v-hue));
+      --card: oklch(28.5% calc(var(--v-tint) * 1.25) var(--v-hue));
+      --ink: oklch(calc(79% + 14% * var(--v-k)) 0.014 var(--v-hue));
+      --ink-2: oklch(calc(66% + 11% * var(--v-k)) 0.02 var(--v-hue));
+      --ink-3: oklch(calc(58% + 11% * var(--v-k)) 0.02 var(--v-hue));
+      --hairline: oklch(31.5% calc(var(--v-tint) * 1.4) var(--v-hue));
+      --border: oklch(37.5% calc(var(--v-tint) * 1.5) var(--v-hue));
+      --accent: oklch(74% calc(var(--v-ac) * 0.85) var(--v-ahue));
+      --accent-strong: oklch(56% var(--v-ac) var(--v-ahue));
+      --accent-soft: oklch(70% calc(var(--v-ac) * 0.9) var(--v-ahue) / 0.18);
+    }
+  }
+}
