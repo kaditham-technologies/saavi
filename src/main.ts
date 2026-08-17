@@ -36,6 +36,25 @@ function ringAddresses(): string[] {
   return out.sort();
 }
 
+// ---------- themes (shared palette family with Kaditham Mail) ----------
+const THEME_NAMES = ['paper', 'aurora', 'solarium', 'ink', 'nocturne', 'phosphor'];
+function applyTheme(name: string): void {
+  for (const t of THEME_NAMES) document.body.classList.toggle(`theme-${t}`, t === name);
+  localStorage.setItem('saavi-theme', name);
+  ($('theme') as HTMLSelectElement).value = name;
+}
+{
+  const saved = localStorage.getItem('saavi-theme') ?? 'system';
+  if (THEME_NAMES.includes(saved)) applyTheme(saved);
+  $('theme').addEventListener('change', () => {
+    const v = ($('theme') as HTMLSelectElement).value;
+    if (v === 'system') {
+      for (const t of THEME_NAMES) document.body.classList.remove(`theme-${t}`);
+      localStorage.setItem('saavi-theme', 'system');
+    } else applyTheme(v);
+  });
+}
+
 // ---------- tabs ----------
 function selectTab(which: 'keys' | 'seal'): void {
   $('tab-keys').classList.toggle('on', which === 'keys');

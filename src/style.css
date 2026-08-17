@@ -187,3 +187,54 @@ button { cursor: pointer; }
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* ============ The six named themes (shared family with Kaditham Mail) ==== */
+.theme-pick {
+  font: inherit; font-size: 12px; font-family: var(--mono);
+  margin-left: auto; padding: 5px 8px;
+  border: 1px solid var(--border); border-radius: 7px;
+  background: var(--card); color: var(--ink);
+}
+.tabs { margin-left: 10px; }
+
+/* Explicit themes beat the OS preference: light themes re-assert the full
+   light set, dark themes the dark set. No class = System. */
+body.theme-paper, body.theme-aurora, body.theme-solarium {
+  --paper: #faf9f7; --paper-2: #f2f0ea; --card: #ffffff;
+  --ink: #17161d; --ink-2: #45434e; --ink-3: #6c6975;
+  --accent: #5b21b6; --accent-soft: #ede7f9;
+  --hairline: #e3e0d8; --border: #dad6cc;
+}
+body.theme-aurora {
+  --paper: #f4f3fb; --paper-2: #eae8f7; --hairline: #e0ddf0; --border: #d2cfe8;
+  --accent: #6d28d9; --accent-soft: #e9e2fb;
+}
+body.theme-solarium {
+  --paper: #f4f8f1; --paper-2: #e9f1e4; --card: #fdfffb;
+  --ink: #16211a; --ink-2: #3f4f45; --ink-3: #5f7266;
+  --accent: #1a7f4e; --accent-soft: #ddf0e2;
+  --hairline: #dbe7d6; --border: #c6d9c2;
+}
+body.theme-ink, body.theme-nocturne, body.theme-phosphor {
+  --paper: #17171b; --paper-2: #1e1e24; --card: #26262d;
+  --ink: #eceaf2; --ink-2: #b8b6c2; --ink-3: #a5a3b0;
+  --accent: #8a70f5; --accent-soft: rgba(138, 112, 245, 0.18);
+  --hairline: #2b2b33; --border: #383842;
+}
+body.theme-nocturne {
+  --paper: #120d24; --paper-2: #191233; --card: #211843;
+  --ink: #efeafd; --ink-2: #c3b8e8; --ink-3: #a396d2;
+  --accent: #a78bfa; --accent-soft: rgba(167, 139, 250, 0.2);
+  --hairline: #2a2050; --border: #383063;
+}
+body.theme-phosphor {
+  --paper: #060a08; --paper-2: #0b120e; --card: #0e1712;
+  --ink: #d7f7e1; --ink-2: #9fd8b4; --ink-3: #6fa886;
+  --accent: #2ee585; --accent-soft: rgba(46, 229, 133, 0.14);
+  --hairline: #16281d; --border: #1f3628;
+  --sans: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --serif: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+body.theme-phosphor .primary { color: #04170d !important; }
+body.theme-phosphor ::selection { background: rgba(46, 229, 133, 0.25); }
