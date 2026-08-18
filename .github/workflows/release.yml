@@ -43,6 +43,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Saavi ${{ github.ref_name }}
           releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: false
       - name: Sign artifacts
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
