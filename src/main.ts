@@ -294,7 +294,7 @@ $('seal-enc').addEventListener('click', async () => {
   const keys: string[] = [];
   const missing: string[] = [];
   if (toRaw.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
-    keys.push(toRaw);
+    keys.push(pgp.normalizeKeyArmor(toRaw));
   } else {
     for (const addr of toRaw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)) {
       const own = pgp.keysFor(addr);

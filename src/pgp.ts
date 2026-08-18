@@ -221,6 +221,19 @@ export function looksEncrypted(text: string): boolean {
   return text.includes('-----BEGIN PGP MESSAGE-----');
 }
 
+/** Repair a public-key armor whose newlines were flattened to spaces —
+ *  what browsers do when a multi-line key is pasted into a single-line
+ *  input. Untouched when the armor still has its newlines. */
+export function normalizeKeyArmor(src: string): string {
+  const m = src.match(/-----BEGIN PGP PUBLIC KEY BLOCK-----([\s\S]*?)-----END PGP PUBLIC KEY BLOCK-----/);
+  if (!m) return src;
+  let body = m[1];
+  if (!body.includes('\n')) {
+    body = '\n\n' + body.trim().split(/\s+/).join('\n') + '\n';
+  }
+  return `-----BEGIN PGP PUBLIC KEY BLOCK-----${body}-----END PGP PUBLIC KEY BLOCK-----`;
+}
+
 export interface DecryptResult {
   text: string;
   signedBy: string | null;   // email of a VERIFIED signer, else null
