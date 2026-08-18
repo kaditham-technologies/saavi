@@ -18,10 +18,20 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev \
             libayatana-appindicator3-dev librsvg2-dev
       - run: npm ci
+      - name: release notes from changelog
+        id: notes
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          awk -v v="$ver" '/^## /{p=($2==v); next} p' CHANGELOG.md \
+            | sed -e '/./,$!d' > notes.md
+          if ! grep -q . notes.md; then
+            echo "no CHANGELOG.md section for $ver" >&2; exit 1
+          fi
+          { echo 'body<<NOTES_EOF'; cat notes.md; echo 'NOTES_EOF'; } >> "$GITHUB_OUTPUT"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Saavi ${{ github.ref_name }}
-          releaseBody: See CHANGELOG.md for what shipped.
+          releaseBody: ${{ steps.notes.outputs.body }}
