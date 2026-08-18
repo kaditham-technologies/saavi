@@ -314,11 +314,14 @@ export async function deleteRetired(email: string, fingerprint: string): Promise
   save(email, { active: ring.active, retired: keep });
 }
 
-/** Offer a (passphrase-encrypted) private key as a downloadable backup —
- *  the active key by default, or any key on the ring by fingerprint. */
-export async function downloadBackup(email: string, fingerprint?: string): Promise<void> {
+/** Save a (passphrase-encrypted) private key as a backup file — the active
+ *  key by default, or any key on the ring by fingerprint. Inside the Tauri
+ *  shell this opens a real save dialog (blob-anchor downloads are inert in
+ *  the webview); in a plain browser it falls back to an anchor download.
+ *  Returns the saved path, '' for a browser download, or null if cancelled. */
+export async function saveBackup(email: string, fingerprint?: string): Promise<string | null> {
   const ring = load(email);
-  if (!ring) return;
+  if (!ring) return null;
   let rec: KeyRecord | null = fingerprint ? null : ring.active;
   if (fingerprint) {
     const want = fingerprint.replace(/\s+/g, '').toLowerCase();
@@ -326,14 +329,22 @@ export async function downloadBackup(email: string, fingerprint?: string): Promi
       if ((await rawFingerprint(r)).toLowerCase() === want) { rec = r; break; }
     }
   }
-  if (!rec) return;
-  const blob = new Blob(
-    [`Saavi key backup — ${email}\nKeep this file and your passphrase somewhere safe. Without both, encrypted letters cannot be read.\n\n${rec.privateKey}\n\n${rec.publicKey}\n`],
-    { type: 'text/plain' }
-  );
+  if (!rec) return null;
+  const text = `Saavi key backup — ${email}\nKeep this file and your passphrase somewhere safe. Without both, encrypted letters cannot be read.\n\n${rec.privateKey}\n\n${rec.publicKey}\n`;
+  const filename = `saavi-key-backup-${email.replace(/[^a-z0-9.@-]/gi, '_')}.txt`;
+  if ('__TAURI_INTERNALS__' in window) {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+    const path = await save({ defaultPath: filename, filters: [{ name: 'Saavi key backup', extensions: ['txt'] }] });
+    if (!path) return null;
+    await writeTextFile(path, text);
+    return path;
+  }
+  const blob = new Blob([text], { type: 'text/plain' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `saavi-key-backup-${email.replace(/[^a-z0-9.@-]/gi, '_')}.txt`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+  return '';
 }

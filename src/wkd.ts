@@ -34,15 +34,26 @@ export async function wkdUrls(address: string): Promise<string[]> {
   ];
 }
 
+/** Webview fetch enforces CORS like any browser, and WKD servers rarely send
+ *  ACAO headers — inside the Tauri shell the request must go through the
+ *  Rust-side http plugin instead. */
+async function wkdFetch(url: string): Promise<Response> {
+  if ('__TAURI_INTERNALS__' in window) {
+    const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
+    return tauriFetch(url);
+  }
+  return fetch(url);
+}
+
 /**
  * Fetch an address's public key via WKD. Returns the armored key, or null
- * when the domain publishes none. Browser CORS can block servers that do
- * not send ACAO headers; inside the Tauri shell the fetch is unrestricted.
+ * when the domain publishes none (or, in a plain browser, when CORS blocks
+ * a server that does not send ACAO headers).
  */
 export async function wkdLookup(address: string): Promise<string | null> {
   for (const url of await wkdUrls(address)) {
     try {
-      const r = await fetch(url);
+      const r = await wkdFetch(url);
       if (!r.ok) continue;
       const bin = new Uint8Array(await r.arrayBuffer());
       const key = await openpgp.readKey({ binaryKey: bin });

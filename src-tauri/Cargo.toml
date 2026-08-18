@@ -1,6 +1,6 @@
 [package]
 name = "saavi"
-version = "0.1.0"
+version = "0.1.1"
 description = "Saavi — the friendliest face of GPG."
 license = "MIT"
 edition = "2021"
@@ -10,6 +10,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-http = "2"
 
 [profile.release]
 lto = true

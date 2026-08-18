@@ -87,9 +87,17 @@
         </label>
         <label class="fld"><span>Email address it belongs to</span><input id="m-email2" type="email" /></label>
       </div>
-      <label class="fld"><span>Passphrase</span><input id="m-pass" type="password" autocomplete="new-password" /></label>
+      <label class="fld" id="f-pass"><span>Passphrase</span><input id="m-pass" type="password" autocomplete="new-password" /></label>
       <label class="fld" id="f-pass2"><span>Passphrase, again</span><input id="m-pass2" type="password" /></label>
       <p id="m-strength" class="hint"></p>
+      <div id="f-done" hidden>
+        <p class="hint">Your new key is ready and unlocked for this session. Save the
+        backup file somewhere safe — with your passphrase, it is the only way to
+        recover this key.</p>
+        <p id="done-fpr" class="fpr"></p>
+        <button type="button" id="m-save-backup" class="primary">Save backup file…</button>
+        <p id="done-saved" class="hint" role="status"></p>
+      </div>
       <p id="m-err" class="error" role="alert" hidden></p>
       <div class="card-acts">
         <button type="button" id="m-cancel">Cancel</button>

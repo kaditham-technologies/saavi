@@ -122,9 +122,10 @@ async function refreshKeys(): Promise<void> {
 $('act-refresh').addEventListener('click', () => void refreshKeys());
 $('act-new').addEventListener('click', () => openModal('generate'));
 $('act-import').addEventListener('click', () => openModal('import'));
-$('act-backup').addEventListener('click', () => {
+$('act-backup').addEventListener('click', async () => {
   if (!sel) return;
-  void pgp.downloadBackup(sel.email, sel.fpr);
+  const path = await pgp.saveBackup(sel.email, sel.fpr).catch(() => null);
+  if (path !== null) $('status').textContent = path ? `Backup saved to ${path}` : 'Backup downloaded.';
 });
 $('act-delete').addEventListener('click', async () => {
   if (!sel || sel.isActive) return;
@@ -138,6 +139,8 @@ $('act-delete').addEventListener('click', async () => {
 type ModalMode = 'generate' | 'import' | 'unlock';
 let modalMode: ModalMode = 'generate';
 let unlockFor: { email: string; fingerprint?: string; then: () => void } | null = null;
+// When set, the modal is on the "key ready" step for this address.
+let doneFor: string | null = null;
 
 function setSrc(src: 'generate' | 'import'): void {
   modalMode = src;
@@ -156,9 +159,14 @@ $('modal-src').addEventListener('click', (e) => {
 function openModal(mode: ModalMode, unlock?: { email: string; fingerprint?: string; then: () => void }): void {
   modalMode = mode;
   unlockFor = mode === 'unlock' ? unlock ?? null : null;
+  doneFor = null;
   ($('modal-form') as HTMLFormElement).reset();
   $('m-err').hidden = true;
   $('m-strength').textContent = '';
+  $('f-done').hidden = true;
+  $('f-pass').hidden = false;
+  ($('m-cancel') as HTMLButtonElement).hidden = false;
+  $('m-go').textContent = 'Continue';
   $('modal-src').hidden = mode === 'unlock';
   $('f-gen').hidden = mode !== 'generate';
   $('f-imp').hidden = mode !== 'import';
@@ -167,13 +175,38 @@ function openModal(mode: ModalMode, unlock?: { email: string; fingerprint?: stri
     mode === 'unlock' ? 'Unlock key' : mode === 'import' ? 'Import a key' : 'New key';
   $('modal-sub').textContent = mode === 'unlock'
     ? `Enter the passphrase for ${unlock?.email ?? 'this key'}.`
-    : 'Created and stored on this device only, locked with your passphrase. A backup file downloads automatically — keep it and the passphrase safe; there is no recovery without both.';
+    : 'Created and stored on this device only, locked with your passphrase. Keep the backup file and the passphrase safe; there is no recovery without both.';
   if (mode !== 'unlock') setSrc(mode);
   $('modal').hidden = false;
   (mode === 'generate' ? $('m-name') : mode === 'import' ? $('m-import') : $('m-pass')).focus();
 }
 
-$('m-cancel').addEventListener('click', () => { $('modal').hidden = true; });
+function closeModal(): void {
+  $('modal').hidden = true;
+  if (doneFor) {
+    doneFor = null;
+    void refreshKeys();
+  }
+}
+
+$('m-cancel').addEventListener('click', closeModal);
+
+$('m-save-backup').addEventListener('click', async () => {
+  if (!doneFor) return;
+  const b = $('m-save-backup') as HTMLButtonElement;
+  b.disabled = true;
+  try {
+    const path = await pgp.saveBackup(doneFor);
+    $('done-saved').textContent =
+      path === null ? 'Not saved yet — choose a location for the backup.'
+      : path === '' ? 'Backup downloaded.'
+      : `Backup saved to ${path}`;
+  } catch (e2) {
+    $('done-saved').textContent = `Could not save: ${e2 instanceof Error ? e2.message : String(e2)}`;
+  } finally {
+    b.disabled = false;
+  }
+});
 $('m-pass').addEventListener('input', () => {
   const n = ($('m-pass') as HTMLInputElement).value.length;
   $('m-strength').textContent =
@@ -182,6 +215,7 @@ $('m-pass').addEventListener('input', () => {
 
 $('modal-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (doneFor) return closeModal();
   const err = $('m-err');
   err.hidden = true;
   const pass = ($('m-pass') as HTMLInputElement).value;
@@ -208,10 +242,20 @@ $('modal-form').addEventListener('submit', async (e) => {
       if (pass !== ($('m-pass2') as HTMLInputElement).value) throw new Error('The passphrases do not match.');
       if (pass.length < 12) throw new Error('Use at least 12 characters — this passphrase is the whole lock.');
       const algo = ($('m-algo') as HTMLSelectElement).value as pgp.KeyAlgo;
-      await pgp.generateKeys(email, ($('m-name') as HTMLInputElement).value.trim(), pass, algo);
+      const rec = await pgp.generateKeys(email, ($('m-name') as HTMLInputElement).value.trim(), pass, algo);
       await pgp.unlockPrivateKey(email, pass);
-      pgp.downloadBackup(email);
-      $('modal').hidden = true;
+      doneFor = email;
+      $('modal-title').textContent = 'Your key is ready';
+      $('modal-sub').textContent = '';
+      $('modal-src').hidden = true;
+      $('f-gen').hidden = true;
+      $('f-pass').hidden = true;
+      $('f-pass2').hidden = true;
+      $('m-strength').textContent = '';
+      $('done-fpr').textContent = await pgp.fingerprintOf(rec.publicKey);
+      $('done-saved').textContent = '';
+      $('f-done').hidden = false;
+      ($('m-cancel') as HTMLButtonElement).hidden = true;
     }
     void refreshKeys();
   } catch (e2) {
@@ -219,12 +263,12 @@ $('modal-form').addEventListener('submit', async (e) => {
     err.hidden = false;
   } finally {
     go.disabled = false;
-    go.textContent = 'Continue';
+    go.textContent = doneFor ? 'Done' : 'Continue';
   }
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('modal').hidden) $('modal').hidden = true;
+  if (e.key === 'Escape' && !$('modal').hidden) closeModal();
 });
 
 // ---------- the sealer (−d) ----------

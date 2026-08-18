@@ -34,6 +34,9 @@
 }
 
 * { box-sizing: border-box; margin: 0; }
+/* The app toggles visibility with the `hidden` attribute; without this,
+   any `display:` rule on the same element silently overrides it. */
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body { font-family: var(--sans); font-size: 14px; color: var(--ink); background: var(--paper); }
 button { cursor: pointer; }
@@ -180,6 +183,12 @@ button { cursor: pointer; }
 }
 .seg button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 4px rgba(23, 22, 29, 0.14); }
 #f-gen, #f-imp { display: flex; flex-direction: column; gap: 12px; }
+#f-done { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.fpr {
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink-2);
+  background: var(--paper-2); border-radius: 8px; padding: 8px 11px;
+  word-break: break-all;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
