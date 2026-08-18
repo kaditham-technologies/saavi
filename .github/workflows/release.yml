@@ -35,3 +35,20 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Saavi ${{ github.ref_name }}
           releaseBody: ${{ steps.notes.outputs.body }}
+      - name: Sign artifacts
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$GPG_SIGNING_KEY" ]; then
+            echo "GPG_SIGNING_KEY secret not set; skipping signing"
+            exit 0
+          fi
+          printf '%s' "$GPG_SIGNING_KEY" | gpg --batch --import
+          shopt -s nullglob
+          for f in src-tauri/target/release/bundle/deb/*.deb \
+                   src-tauri/target/release/bundle/appimage/*.AppImage; do
+            gpg --batch --yes --detach-sign --output "$(basename "$f").sig" "$f"
+          done
+          gpg --batch --export --armor > saavi_pubkey.gpg
+          gh release upload "$GITHUB_REF_NAME" ./*.sig saavi_pubkey.gpg
