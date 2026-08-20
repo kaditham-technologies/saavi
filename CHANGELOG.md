@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 — 2026-08-20
 
 - **First run, fewer decisions** (Saavi store): a new key opens with six
   generated words already filled in — "New words" for another set, "Copy"

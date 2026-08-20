@@ -1,6 +1,6 @@
 [package]
 name = "saavi"
-version = "0.2.0"
+version = "0.2.1"
 description = "Saavi — the friendliest face of GPG."
 license = "MIT"
 repository = "https://github.com/kaditham-technologies/saavi"
