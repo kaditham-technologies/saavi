@@ -622,6 +622,14 @@ function openModal(mode: ModalMode, unlock?: { email: string; fingerprint?: stri
       ? 'gpg creates and stores the key in your GnuPG keyring and asks for the passphrase itself (pinentry). Saavi never sees it.'
       : 'Created and stored on this device only, locked with your passphrase. Keep the backup file and the passphrase safe; there is no recovery without both.';
   if (mode !== 'unlock') setSrc(mode);
+  // Humans are bad at inventing passphrases: a new Saavi-store key starts
+  // with six generated words already filled in and shown in clear; "Use my
+  // own" is the opt-out. The keychain box starts ticked where a store
+  // exists, so the words are typed essentially never.
+  if (mode === 'generate' && source === 'saavi') {
+    suggestPassphrase();
+    ($('m-remember') as HTMLInputElement).checked = keychainOk;
+  }
   $('modal').hidden = false;
   (mode === 'generate' ? $('m-name') : mode === 'import' ? $('m-import') : $('m-pass')).focus();
 }
@@ -633,16 +641,46 @@ function closeModal(): void {
 }
 $('m-cancel').addEventListener('click', closeModal);
 
-// Suggest a passphrase: diceware, shown in clear so it can be copied into a
-// password manager — the right home for it.
-$('m-suggest').addEventListener('click', () => {
-  const p = generatePassphrase(6);
+// Generated passphrase: diceware, shown in clear so it can be written down
+// or copied into a password manager — the right home for it.
+let suggested = '';
+function suggestPassphrase(): void {
+  suggested = generatePassphrase(6);
   for (const id of ['m-pass', 'm-pass2']) {
     const i = $(id) as HTMLInputElement;
-    i.value = p;
+    i.value = suggested;
     i.type = 'text';
   }
-  $('m-strength').textContent = `Generated: 6 random words, ≈${passphraseBits(6)} bits. Store it in a password manager (KeePassXC, Bitwarden) before you continue.`;
+  $('m-strength').textContent = `Six random words, ≈${passphraseBits(6)} bits. Write them down or save them in a password manager before you continue.`;
+}
+$('m-suggest').addEventListener('click', suggestPassphrase);
+$('m-own-pass').addEventListener('click', () => {
+  suggested = '';
+  for (const id of ['m-pass', 'm-pass2']) {
+    const i = $(id) as HTMLInputElement;
+    i.value = '';
+    i.type = 'password';
+  }
+  $('m-strength').textContent = 'At least 12 characters; a sentence you will remember beats a short jumble.';
+  $('m-pass').focus();
+});
+// Copy, then clear the clipboard after 30 s — only if it still holds the
+// passphrase, so something the user copied meanwhile is left alone.
+$('m-copy-pass').addEventListener('click', async () => {
+  const p = ($('m-pass') as HTMLInputElement).value;
+  if (!p) return;
+  try {
+    await navigator.clipboard.writeText(p);
+    $('m-strength').textContent = 'Copied. The clipboard is cleared in 30 seconds — paste it into your password manager now.';
+    setTimeout(async () => {
+      try {
+        const now = await navigator.clipboard.readText().catch(() => null);
+        if (now === null || now === p) await navigator.clipboard.writeText('');
+      } catch { /* clipboard gone or denied — nothing to clear */ }
+    }, 30_000);
+  } catch (e) {
+    $('m-strength').textContent = `Could not copy: ${errMsg(e)}`;
+  }
 });
 $('m-pass-show').addEventListener('click', () => {
   const i = $('m-pass') as HTMLInputElement;

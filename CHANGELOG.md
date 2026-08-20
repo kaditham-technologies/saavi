@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **First run, fewer decisions** (Saavi store): a new key opens with six
+  generated words already filled in — "New words" for another set, "Copy"
+  (clipboard cleared after 30 s), "Use my own" to type a passphrase
+  instead. "Remember in the OS keychain" starts ticked where a credential
+  store exists, so the words are typed essentially never. Saavi still is
+  not a password manager; the hint names a few.
+
 ## 0.2.0 — 2026-08-20
 
 - **Auto-lock** (Saavi store): unlocked private keys are forgotten after

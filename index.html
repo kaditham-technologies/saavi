@@ -119,8 +119,10 @@
       <label class="check" id="f-remember" hidden><input type="checkbox" id="m-remember" />
         <span>Remember this passphrase in the OS keychain — unlock without typing it. Protection then rests on your OS login.</span></label>
       <div id="f-suggest" class="suggest" hidden>
-        <button type="button" id="m-suggest" class="mini">Suggest a strong passphrase</button>
-        <span class="hint">Six random words — keep it in a password manager (KeePassXC, Bitwarden).</span>
+        <button type="button" id="m-suggest" class="mini">New words</button>
+        <button type="button" id="m-copy-pass" class="mini">Copy</button>
+        <button type="button" id="m-own-pass" class="mini">Use my own</button>
+        <span class="hint" id="m-suggest-hint">Save these six words in your password manager (KeePassXC, Bitwarden, Apple Passwords) — Saavi will not be one. Copy clears the clipboard after 30 seconds.</span>
       </div>
       <p id="m-strength" class="hint"></p>
       <div id="f-done" hidden>

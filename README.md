@@ -64,9 +64,10 @@ Tired of typing it? Tick **remember in the OS keychain** when unlocking
 and Saavi opens the key through macOS Keychain / Windows Credential
 Manager / your Linux keyring instead — per key, opt-in, reversible.
 
-First key? The wizard can **suggest a passphrase** — six random words
-from the EFF list, about 77 bits — and asks you to keep it in a password
-manager (KeePassXC, Bitwarden). Saavi will not try to be one.
+First key? The wizard starts you with **six random words** from the EFF
+list (about 77 bits) already filled in — copy them into a password manager
+(KeePassXC, Bitwarden, Apple Passwords) or type your own. Saavi will not
+try to be one.
 
 ## Build
 
