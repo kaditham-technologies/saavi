@@ -1,0 +1,72 @@
+// Update indicator — check only, never download. Opt-in; at most once a
+// day; one GET of the static release manifest our own download page
+// publishes (not GitHub, so no third party sees the app start). The
+// manifest can only make Saavi *say* a newer version exists: installing
+// is still the user downloading and verifying a signed release.
+
+export const MANIFEST_URL = 'https://kaditham.ie/wp-content/uploads/saavi/latest.json';
+export const DOWNLOAD_PAGE = 'https://kaditham.ie/saavi/';
+const OPT_KEY = 'saavi-update-check'; // 'on' | 'off' (absent = off)
+const LAST_KEY = 'saavi-update-last'; // YYYY-MM-DD of the last check
+const SEEN_KEY = 'saavi-update-seen'; // newest version the user was told about
+
+export interface UpdateInfo { version: string; published: string | null; }
+
+export function enabled(): boolean {
+  return localStorage.getItem(OPT_KEY) === 'on';
+}
+export function setEnabled(on: boolean): void {
+  localStorage.setItem(OPT_KEY, on ? 'on' : 'off');
+  if (!on) localStorage.removeItem(LAST_KEY);
+}
+
+/** a > b for dotted numeric versions ("0.2.10" > "0.2.9"); pre-release
+ *  suffixes are ignored, which is fine for our tags. */
+export function isNewer(a: string, b: string): boolean {
+  const pa = a.split('.').map((x) => parseInt(x, 10) || 0);
+  const pb = b.split('.').map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d > 0;
+  }
+  return false;
+}
+
+async function get(url: string): Promise<Response> {
+  if ('__TAURI_INTERNALS__' in window) {
+    const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
+    return tauriFetch(url, { method: 'GET', headers: { Accept: 'application/json' } });
+  }
+  return fetch(url, { cache: 'no-store' });
+}
+
+/** Fetch the manifest and compare; null when current, unreachable, or
+ *  malformed. `force` ignores the once-a-day stamp. */
+export async function check(current: string, force = false): Promise<UpdateInfo | null> {
+  const today = new Date().toISOString().slice(0, 10);
+  if (!force && localStorage.getItem(LAST_KEY) === today) return null;
+  localStorage.setItem(LAST_KEY, today);
+  try {
+    const r = await get(MANIFEST_URL);
+    if (!r.ok) return null;
+    const m = (await r.json()) as { version?: unknown; published?: unknown };
+    if (typeof m.version !== 'string' || !/^\d+(\.\d+){1,3}$/.test(m.version)) return null;
+    if (!isNewer(m.version, current)) return null;
+    return { version: m.version, published: typeof m.published === 'string' ? m.published : null };
+  } catch {
+    return null;
+  }
+}
+
+export function markSeen(version: string): void { localStorage.setItem(SEEN_KEY, version); }
+export function seen(): string | null { return localStorage.getItem(SEEN_KEY); }
+
+/** Open the download page in the system browser (Tauri) or a new tab. */
+export async function openDownloadPage(): Promise<void> {
+  if ('__TAURI_INTERNALS__' in window) {
+    const { openUrl } = await import('@tauri-apps/plugin-opener');
+    await openUrl(DOWNLOAD_PAGE);
+  } else {
+    window.open(DOWNLOAD_PAGE, '_blank', 'noopener');
+  }
+}

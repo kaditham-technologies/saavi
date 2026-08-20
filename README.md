@@ -28,9 +28,11 @@ Mail if you have it.
   addresses and public keys sit beside them in the clear. Unlocked keys
   exist only in process memory, and are dropped after 15 idle minutes or
   with **Lock** (⌘L / Ctrl+L).
-- **Only public keys ever travel** — the app's sole network use is
-  fetching other people's public keys over WKD (in system mode, gpg's own
-  `--auto-key-locate wkd`). Nothing is uploaded.
+- **Only public keys ever travel** — the app's network use is fetching
+  other people's public keys over WKD (in system mode, gpg's own
+  `--auto-key-locate wkd`), plus, only if you tick **Check for updates**,
+  one daily GET of the release manifest from kaditham.ie — no identifiers,
+  nothing downloaded or installed. Nothing is uploaded.
 - **System GnuPG mode adds no new key handling.** Saavi runs `gpg`; it
   does not read `~/.gnupg`, hold secret keys, or see passphrases.
 - **What Saavi cannot protect against:** a compromised operating system,

@@ -8,6 +8,10 @@
   instead. "Remember in the OS keychain" starts ticked where a credential
   store exists, so the words are typed essentially never. Saavi still is
   not a password manager; the hint names a few.
+- **Update indicator** (opt-in, check-only): tick "Check for updates" in
+  the status bar and Saavi fetches the release manifest from kaditham.ie
+  once a day; a pill appears when a newer version exists and opens the
+  download page. Nothing is downloaded or installed; no identifiers sent.
 - Fixed: on Linux the theme and keyring dropdowns rendered as white native
   controls regardless of theme.
 

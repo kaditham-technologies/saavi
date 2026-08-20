@@ -11,6 +11,7 @@ import { wkdLookup } from './wkd';
 import { vksLookup } from './vks';
 import { ask, confirmBox, notice } from './ui';
 import { generatePassphrase, passphraseBits, describeStrength } from './passphrase';
+import * as update from './update';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
@@ -111,6 +112,27 @@ for (const ev of ['pointerdown', 'keydown', 'mousemove', 'wheel', 'focus'] as co
   window.addEventListener(ev, armIdle, { passive: true, capture: true });
 }
 armIdle();
+
+// ---------- update indicator (opt-in, check-only) ----------
+const updateOpt = $('update-opt') as HTMLInputElement;
+const updatePill = $('update-pill') as HTMLButtonElement;
+async function runUpdateCheck(force = false): Promise<void> {
+  if (!update.enabled()) return;
+  const info = await update.check(__APP_VERSION__, force);
+  if (!info) { if (force) status(`Saavi ${__APP_VERSION__} is the latest version.`); return; }
+  updatePill.textContent = `Saavi ${info.version} available`;
+  updatePill.title = `You have ${__APP_VERSION__}. Opens the download page; install it the usual way and verify the signature.`;
+  updatePill.hidden = false;
+  if (update.seen() !== info.version) { update.markSeen(info.version); status(`Saavi ${info.version} is available — see the download page.`); }
+}
+updateOpt.checked = update.enabled();
+updateOpt.addEventListener('change', () => {
+  update.setEnabled(updateOpt.checked);
+  if (updateOpt.checked) void runUpdateCheck(true);
+  else updatePill.hidden = true;
+});
+updatePill.addEventListener('click', () => { void update.openDownloadPage().catch((e) => status(`Could not open the browser: ${errMsg(e)}`)); });
+void runUpdateCheck();
 
 // ---------- files through the shell ----------
 async function saveTextFile(filename: string, text: string): Promise<string | null> {

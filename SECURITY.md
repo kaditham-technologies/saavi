@@ -82,3 +82,13 @@ front end to the installed `gpg` binary (`src-tauri/src/gpg.rs`):
   composites will be offered when OpenPGP.js ships the
   draft-ietf-openpgp-pqc algorithms, at which point key rotation inside
   Saavi is the migration path.
+
+## Update check (opt-in)
+
+With **Check for updates** ticked, Saavi fetches
+`https://kaditham.ie/wp-content/uploads/saavi/latest.json` at most once a
+day and shows a pill if the version there is newer. It never downloads or
+installs anything: the manifest can only make Saavi *say* a release
+exists; installing is still you downloading a signed build and verifying
+it. The request carries no identifiers and goes to our own site, not
+GitHub. Off by default.

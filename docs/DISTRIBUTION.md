@@ -84,6 +84,8 @@ needs only the per-app `latest.json` URL.
 
 - Apple notarization / Windows Authenticode (see TODO.md) — until then
   `release-install.md` tells users how to get past the OS warnings.
-- In-app update checks (would use `latest.json`; the Tauri updater plugin
-  needs its own minisign key — a separate decision).
+- In-app *installation* of updates. The app has an opt-in, check-only
+  indicator (daily GET of the mirrored `latest.json`, links to the page);
+  the Tauri updater plugin would need its own minisign key — a separate
+  decision.
 - Reproducible builds so third parties can regenerate the checksums.

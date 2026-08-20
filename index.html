@@ -48,7 +48,13 @@
         <span></span><span>Address</span><span>Key ID</span><span>Created</span><span class="c-end" id="col-status">Status</span>
       </div>
       <div id="rows" class="rows" role="listbox" aria-label="Keys"></div>
-      <div id="status" class="status">…</div>
+      <div class="status">
+        <span id="status">…</span>
+        <span class="status-right">
+          <button type="button" id="update-pill" class="update-pill" hidden></button>
+          <label class="check update-opt" title="Once a day, fetch the release manifest from kaditham.ie and say if a newer Saavi exists. Nothing is downloaded or installed; no identifiers are sent."><input type="checkbox" id="update-opt" /><span>Check for updates</span></label>
+        </span>
+      </div>
     </section>
 
     <!-- −d : the sealer -->
