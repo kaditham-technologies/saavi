@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Sealer: the To field accepts addresses separated by commas, semicolons,
+  spaces or new lines (before, anything but a comma made one unusable
+  address). When no key is found the message now says why, per address:
+  the domain publishes none over WKD and keys.openpgp.org has none —
+  or the domain could not be reached at all.
+
 ## 0.2.1 — 2026-08-20
 
 - **First run, fewer decisions** (Saavi store): a new key opens with six

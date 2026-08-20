@@ -7,7 +7,7 @@ import './style.css';
 import * as pgp from './pgp';
 import * as gpg from './gpg';
 import * as keychain from './keychain';
-import { wkdLookup } from './wkd';
+import { wkdProbe } from './wkd';
 import { vksLookup } from './vks';
 import { ask, confirmBox, notice } from './ui';
 import { generatePassphrase, passphraseBits, describeStrength } from './passphrase';
@@ -847,18 +847,33 @@ const recipientsRaw = (): string => ($('seal-to') as HTMLInputElement).value.tri
 const signAs = (): string => ($('seal-sign') as HTMLSelectElement).value;
 
 /** Saavi store: resolve the To field to armored public keys. */
-async function resolveSaaviRecipients(toRaw: string): Promise<{ keys: string[]; missing: string[] }> {
+/** Split a To field: commas, semicolons, whitespace and newlines all separate addresses. */
+function splitAddresses(raw: string): string[] {
+  return raw.split(/[\s,;]+/).map((s) => s.trim().toLowerCase().replace(/^<|>$/g, '')).filter(Boolean);
+}
+
+async function resolveSaaviRecipients(toRaw: string): Promise<{ keys: string[]; missing: string[]; why: string[] }> {
   const keys: string[] = [];
   const missing: string[] = [];
+  const why: string[] = [];
   if (toRaw.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
     keys.push(pgp.normalizeKeyArmor(toRaw));
-    return { keys, missing };
+    return { keys, missing, why };
   }
-  for (const addr of toRaw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)) {
-    const found = pgp.keysFor(addr)?.publicKey ?? await wkdLookup(addr) ?? await vksLookup(addr);
-    if (found) keys.push(found); else missing.push(addr);
+  for (const addr of splitAddresses(toRaw)) {
+    const own = pgp.keysFor(addr)?.publicKey;
+    if (own) { keys.push(own); continue; }
+    const w = await wkdProbe(addr);
+    if (w.key) { keys.push(w.key); continue; }
+    const v = await vksLookup(addr);
+    if (v) { keys.push(v); continue; }
+    missing.push(addr);
+    const domain = addr.split('@')[1] ?? '';
+    why.push(w.status === 'unreachable'
+      ? `${addr}: ${domain} could not be reached for WKD${w.detail ? ` (${w.detail})` : ''} — check the connection`
+      : `${addr}: ${domain} publishes no key for this address (WKD), and none is on keys.openpgp.org`);
   }
-  return { keys, missing };
+  return { keys, missing, why };
 }
 
 /** Make sure the Saavi signing key is unlocked; prompts if not. Resolves false if the user bails. */
@@ -877,7 +892,7 @@ async function resolveSystemRecipients(toRaw: string): Promise<string[]> {
     status(`Pasted key imported into GnuPG: ${r.fingerprints.map(gpg.fmtFpr).join(', ')}`);
     return r.fingerprints;
   }
-  return toRaw.split(',').map((s) => s.trim()).filter(Boolean);
+  return splitAddresses(toRaw);
 }
 
 async function untrustedOk(untrusted: string[]): Promise<boolean> {
@@ -910,8 +925,8 @@ $('seal-enc').addEventListener('click', async () => {
   if (!toRaw) return sealFail('Name at least one recipient — an address, or a pasted public key.');
   try {
     if (source === 'system') return await sealWithSystem(text, toRaw);
-    const { keys, missing } = await resolveSaaviRecipients(toRaw);
-    if (missing.length) return sealFail(`No key discoverable for: ${missing.join(', ')} — not via WKD, not on keys.openpgp.org. Ask them for their public key and paste it instead.`);
+    const { keys, missing, why } = await resolveSaaviRecipients(toRaw);
+    if (missing.length) return sealFail(`No key found. ${why.join('. ')}. Ask them for their public key and paste it into To instead.`);
     const signer = signAs();
     if (signer && !await ensureUnlocked(signer)) return sealFail('Not sealed — the signing key stayed locked.');
     sealShow(signer ? 'Sealed and signed message' : 'Sealed message', await pgp.encryptText(text, keys, signer || undefined, { sign: !!signer }));
@@ -1046,8 +1061,8 @@ async function sealFile(input: string | null): Promise<void> {
   }
   const path = input ?? await pickFile('Choose a file to seal');
   if (!path) return;
-  const { keys, missing } = await resolveSaaviRecipients(toRaw);
-  if (missing.length) return fileStatus(`No key discoverable for: ${missing.join(', ')}.`);
+  const { keys, missing, why } = await resolveSaaviRecipients(toRaw);
+  if (missing.length) return fileStatus(`No key found. ${why.join('. ')}.`);
   if (signWith && !await ensureUnlocked(signWith)) return fileStatus('Not sealed — the signing key stayed locked.');
   const output = await pickSave(`${path}.gpg`);
   if (!output) return;

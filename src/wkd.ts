@@ -59,15 +59,26 @@ function keyCarriesAddress(key: openpgp.Key, address: string): boolean {
   });
 }
 
+export interface WkdResult {
+  key: string | null;
+  /** 'none': the domain answered but publishes no key for this address;
+   *  'unreachable': no WKD endpoint could be reached at all (DNS, TLS,
+   *  offline) — a different problem from "not published". */
+  status: 'found' | 'none' | 'unreachable';
+  detail?: string;
+}
+
 /**
- * Fetch an address's public key via WKD. Returns the armored key, or null
- * when the domain publishes none (or, in a plain browser, when CORS blocks
- * a server that does not send ACAO headers).
+ * Fetch an address's public key via WKD, saying why when it cannot.
+ * In a plain browser a server without ACAO headers looks unreachable.
  */
-export async function wkdLookup(address: string): Promise<string | null> {
+export async function wkdProbe(address: string): Promise<WkdResult> {
+  let answered = false;
+  let lastErr = '';
   for (const url of await wkdUrls(address)) {
     try {
       const r = await wkdFetch(url);
+      answered = true;
       if (!r.ok) continue;
       // Redirects are followed; the final hop must still be HTTPS.
       if (r.url && !r.url.startsWith('https://')) continue;
@@ -77,10 +88,16 @@ export async function wkdLookup(address: string): Promise<string | null> {
       if (buf.byteLength > MAX_KEY_BYTES) continue;
       const key = await openpgp.readKey({ binaryKey: new Uint8Array(buf) });
       if (!keyCarriesAddress(key, address)) continue;
-      return key.armor();
-    } catch {
+      return { key: key.armor(), status: 'found' };
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
       /* try the next form */
     }
   }
-  return null;
+  return answered ? { key: null, status: 'none' } : { key: null, status: 'unreachable', detail: lastErr };
+}
+
+/** The key, or null when the domain publishes none or cannot be reached. */
+export async function wkdLookup(address: string): Promise<string | null> {
+  return (await wkdProbe(address)).key;
 }
