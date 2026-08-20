@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-08-20
 
 - **Auto-lock** (Saavi store): unlocked private keys are forgotten after
   15 minutes without input, and on demand — Lock on the keyring toolbar
