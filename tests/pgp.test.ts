@@ -1,0 +1,163 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import * as openpgp from 'openpgp';
+import * as pgp from '../src/pgp';
+
+const PASS = 'correct horse battery staple';
+const ME = 'me@example.org';
+
+beforeEach(() => {
+  localStorage.clear();
+  pgp.clearSession();
+});
+
+describe('keystore', () => {
+  it('generates, stores locked, and lists a key', async () => {
+    const rec = await pgp.generateKeys(ME, 'Me', PASS);
+    expect(rec.privateKey).toContain('BEGIN PGP PRIVATE KEY BLOCK');
+    const stored = await openpgp.readPrivateKey({ armoredKey: pgp.keysFor(ME)!.privateKey });
+    expect(stored.isDecrypted()).toBe(false);
+    const list = await pgp.listKeys(ME);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ isActive: true, unlocked: false });
+    expect(list[0].fingerprint).toMatch(/^([0-9A-F]{4} ){9}[0-9A-F]{4}$/);
+    expect(pgp.isUnlocked(ME)).toBe(false);
+  });
+
+  it('unlocks with the right passphrase only', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    await expect(pgp.unlockPrivateKey(ME, 'wrong')).rejects.toThrow();
+    expect(pgp.isUnlocked(ME)).toBe(false);
+    await pgp.unlockPrivateKey(ME, PASS);
+    expect(pgp.isUnlocked(ME)).toBe(true);
+    pgp.clearSession();
+    expect(pgp.isUnlocked(ME)).toBe(false);
+  });
+
+  it('rotating retires the old key instead of deleting it', async () => {
+    const a = await pgp.generateKeys(ME, 'Me', PASS);
+    const b = await pgp.generateKeys(ME, 'Me', PASS);
+    const ring = pgp.ringFor(ME)!;
+    expect(ring.active.publicKey).toBe(b.publicKey);
+    expect(ring.retired.map((r) => r.publicKey)).toEqual([a.publicKey]);
+    const list = await pgp.listKeys(ME);
+    expect(list.map((k) => k.isActive)).toEqual([true, false]);
+    // the active key cannot be deleted; a retired one can
+    await pgp.deleteRetired(ME, list[0].fingerprint);
+    expect(pgp.ringFor(ME)!.retired).toHaveLength(1);
+    await pgp.deleteRetired(ME, list[1].fingerprint);
+    expect(pgp.ringFor(ME)!.retired).toHaveLength(0);
+    expect(pgp.keysFor(ME)!.publicKey).toBe(b.publicKey);
+  });
+
+  it('migrates a v1 bare record into a ring', async () => {
+    const rec = await pgp.generateKeys('old@example.org', 'Old', PASS);
+    localStorage.setItem('saavi-ring-old@example.org', JSON.stringify(rec));
+    const ring = pgp.ringFor('old@example.org')!;
+    expect(ring.active.publicKey).toBe(rec.publicKey);
+    expect(ring.retired).toEqual([]);
+    expect(JSON.parse(localStorage.getItem('saavi-ring-old@example.org')!).active).toBeDefined();
+  });
+
+  it('ignores corrupt storage rather than throwing', () => {
+    localStorage.setItem('saavi-ring-' + ME, '{not json');
+    expect(pgp.keysFor(ME)).toBeNull();
+    localStorage.setItem('saavi-ring-' + ME, '{"nothing":1}');
+    expect(pgp.keysFor(ME)).toBeNull();
+  });
+});
+
+describe('import', () => {
+  it('imports a locked export only with its own passphrase, and starts unlocked', async () => {
+    const rec = await pgp.generateKeys('src@example.org', 'Src', PASS);
+    await expect(pgp.importKey(ME, rec.privateKey, 'wrong')).rejects.toThrow(/does not unlock/);
+    expect(pgp.keysFor(ME)).toBeNull();
+    await pgp.importKey(ME, `Saavi key backup\n\n${rec.privateKey}\n\n${rec.publicKey}\n`, PASS);
+    expect(pgp.isUnlocked(ME)).toBe(true);
+    expect(pgp.keysFor(ME)!.publicKey.trim()).toBe(rec.publicKey.trim());
+  });
+
+  it('locks a cleartext export with the given passphrase before storing', async () => {
+    const { privateKey } = await openpgp.generateKey({
+      userIDs: [{ email: ME }], type: 'ecc', curve: 'curve25519Legacy', format: 'armored',
+    });
+    await pgp.importKey(ME, privateKey, PASS);
+    const stored = await openpgp.readPrivateKey({ armoredKey: pgp.keysFor(ME)!.privateKey });
+    expect(stored.isDecrypted()).toBe(false);
+    await expect(openpgp.decryptKey({ privateKey: stored, passphrase: PASS })).resolves.toBeDefined();
+  });
+
+  it('rejects input with no private key block', async () => {
+    const rec = await pgp.generateKeys('src@example.org', 'Src', PASS);
+    await expect(pgp.importKey(ME, rec.publicKey, PASS)).rejects.toThrow(/No PGP private key/);
+  });
+});
+
+describe('seal / unseal', () => {
+  it('round-trips text to a recipient and reports which key a message wants', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    const other = await pgp.generateKeys('you@example.org', 'You', PASS);
+    const sealed = await pgp.encryptText('hello', [pgp.keysFor(ME)!.publicKey]);
+    expect(pgp.looksEncrypted(sealed)).toBe(true);
+
+    await expect(pgp.decryptText(sealed)).rejects.toThrow('locked');
+    const need = await pgp.neededKeyFor(ME, sealed);
+    expect(need).toMatchObject({ isActive: true, unlocked: false });
+    expect(await pgp.neededKeyFor('you@example.org', sealed)).toBeNull();
+
+    // only the wrong key unlocked → still 'locked', not some other error
+    await pgp.unlockPrivateKey('you@example.org', PASS);
+    await expect(pgp.decryptText(sealed)).rejects.toThrow('locked');
+
+    await pgp.unlockPrivateKey(ME, PASS);
+    expect((await pgp.decryptText(sealed)).text).toBe('hello');
+    void other;
+  });
+
+  it('signs with the unlocked sender and the recipient can verify it', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    await pgp.unlockPrivateKey(ME, PASS);
+    const sealed = await pgp.encryptText('signed hello', [pgp.keysFor(ME)!.publicKey], ME);
+    const out = await pgp.decryptText(sealed, pgp.keysFor(ME)!.publicKey);
+    expect(out.text).toBe('signed hello');
+    expect(out.signedBy).toBe(ME);
+  });
+
+  it('reports a tampered message as an error, not as a locked key', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    await pgp.unlockPrivateKey(ME, PASS);
+    const sealed = await pgp.encryptText('secret', [pgp.keysFor(ME)!.publicKey]);
+    // flip bytes in the middle of the armored body
+    const lines = sealed.split('\n');
+    const mid = Math.floor(lines.length / 2);
+    lines[mid] = lines[mid].replace(/[A-Za-z0-9]/g, (c) => (c === 'A' ? 'B' : 'A'));
+    const tampered = lines.join('\n');
+    let err: unknown;
+    try { await pgp.decryptText(tampered); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toBe('locked');
+  });
+
+  it('decrypts to a retired key and distinguishes it from the active one', async () => {
+    const old = await pgp.generateKeys(ME, 'Me', PASS);
+    const sealedToOld = await pgp.encryptText('old news', [old.publicKey]);
+    await pgp.generateKeys(ME, 'Me', PASS);  // rotate
+    const need = (await pgp.neededKeyFor(ME, sealedToOld))!;
+    expect(need.isActive).toBe(false);
+    await pgp.unlockPrivateKey(ME, PASS, need.fingerprint);
+    expect((await pgp.decryptText(sealedToOld)).text).toBe('old news');
+    // active key is still locked
+    expect(pgp.isUnlocked(ME)).toBe(false);
+  });
+});
+
+describe('normalizeKeyArmor', () => {
+  it('repairs a key whose newlines became spaces and leaves intact armor alone', async () => {
+    const rec = await pgp.generateKeys(ME, 'Me', PASS);
+    const flat = rec.publicKey.replace(/\r?\n/g, ' ');
+    const fixed = pgp.normalizeKeyArmor(flat);
+    expect(fixed).not.toBe(flat);
+    await expect(openpgp.readKey({ armoredKey: fixed })).resolves.toBeDefined();
+    expect(pgp.normalizeKeyArmor(rec.publicKey)).toBe(rec.publicKey.trim());
+    expect(pgp.normalizeKeyArmor('no armor here')).toBe('no armor here');
+  });
+});

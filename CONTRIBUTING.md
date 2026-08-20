@@ -20,13 +20,13 @@ people's keys, so we ask for rigour over speed.
 - No new runtime dependencies without an issue discussing why. The
   frontend has one library dependency (openpgp) plus the Tauri bridge
   packages; keeping the audit surface small is a feature.
-- Anything touching `pgp.ts` or `wkd.ts` needs a written argument in the
-  PR for why the change is correct (there is no test suite yet — adding
-  one is welcome and would be the first thing we'd merge).
+- Anything touching `pgp.ts` or `wkd.ts` needs a test in `tests/`
+  (`npm test`, vitest against real OpenPGP.js — no mocks of the crypto),
+  or a written argument for why a test cannot express the property.
 - User-facing copy is part of the product: plain sentences, no jargon,
   honest about limits. Match the existing voice.
 - CI builds the frontend (`npm run build`, strict TypeScript, zero
-  errors), builds the Linux shell, and runs `npm audit` / `cargo audit`.
+  errors), runs `npm test`, builds the Linux shell, and runs `npm audit` / `cargo audit`.
   There is no formatter; follow `.editorconfig` and the surrounding style.
 - Security issues go to the address in [SECURITY.md](SECURITY.md), not to
   the issue tracker.
@@ -35,5 +35,6 @@ people's keys, so we ask for rigour over speed.
 
 ```sh
 npm ci && npm run dev        # frontend only, in a browser
+npm test                     # keystore / WKD suite
 cargo tauri dev              # the real shell
 ```
