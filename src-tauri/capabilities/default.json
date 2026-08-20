@@ -1,14 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Saavi main window: save-backup dialog (the chosen path is scoped by the dialog itself) + file write, WKD key fetch over HTTPS.",
+  "description": "Saavi main window: open/save dialogs (the chosen paths are scoped by the dialog itself), text + binary file read/write for backups and sealed files, WKD key fetch over HTTPS.",
   "windows": [
     "main"
   ],
   "permissions": [
     "core:default",
     "dialog:allow-save",
+    "dialog:allow-open",
     "fs:allow-write-text-file",
+    "fs:allow-write-file",
+    "fs:allow-read-file",
     {
       "identifier": "http:default",
       "allow": [

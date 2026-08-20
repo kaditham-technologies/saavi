@@ -214,11 +214,13 @@ export function isUnlocked(email?: string): boolean {
 
 /** Encrypt — signed with the given address's active key when it is unlocked
  *  (falls back to the most recently unlocked key). */
-export async function encryptText(text: string, armoredPublicKeys: string[], signerEmail?: string): Promise<string> {
+export async function encryptText(text: string, armoredPublicKeys: string[], signerEmail?: string, opts: { sign?: boolean } = {}): Promise<string> {
   const encryptionKeys = await Promise.all(armoredPublicKeys.map((k) => openpgp.readKey({ armoredKey: k })));
   const message = await openpgp.createMessage({ text });
   const signerFpr = (signerEmail ? activeByEmail.get(signerEmail.toLowerCase()) : null) ?? activeSessionFpr;
-  const signer = signerFpr ? sessionKeys.get(signerFpr) : null;
+  // sign defaults to true for callers that rely on it (the webmail); pass
+  // { sign: false } to seal without vouching for authorship.
+  const signer = opts.sign === false ? null : signerFpr ? sessionKeys.get(signerFpr) : null;
   return String(await openpgp.encrypt({
     message,
     encryptionKeys,
@@ -374,4 +376,103 @@ export async function saveBackup(email: string, fingerprint?: string): Promise<s
   a.click();
   URL.revokeObjectURL(a.href);
   return '';
+}
+
+// ---------- signing & verification (cleartext), files ----------
+
+/** Clearsign text with the given address's unlocked active key. */
+export async function signText(text: string, signerEmail: string): Promise<string> {
+  const fpr = activeByEmail.get(signerEmail.toLowerCase());
+  const key = fpr ? sessionKeys.get(fpr) : null;
+  if (!key) throw new Error('locked');
+  const message = await openpgp.createCleartextMessage({ text });
+  return String(await openpgp.sign({ message, signingKeys: key }));
+}
+
+export interface VerifyResult {
+  text: string;
+  /** 'good' | 'bad' | 'unknown-key' */
+  status: 'good' | 'bad' | 'unknown-key';
+  signerFingerprint: string | null;
+  signerUid: string | null;
+}
+
+/** Verify a clearsigned message against candidate public keys. */
+export async function verifyText(armored: string, armoredPublicKeys: string[]): Promise<VerifyResult> {
+  const message = await openpgp.readCleartextMessage({ cleartextMessage: armored.trim() });
+  const text = message.getText();
+  const wanted = message.getSigningKeyIDs().map((id) => id.toHex().toLowerCase());
+  const keys = await Promise.all(armoredPublicKeys.map((k) => openpgp.readKey({ armoredKey: k })));
+  const candidates = keys.filter((k) => k.getKeys().some((sk) => wanted.includes(sk.getKeyID().toHex().toLowerCase())));
+  if (!candidates.length) return { text, status: 'unknown-key', signerFingerprint: null, signerUid: null };
+  const { signatures } = await openpgp.verify({ message, verificationKeys: candidates });
+  for (const sig of signatures) {
+    const key = candidates.find((k) => k.getKeys().some((sk) => sk.getKeyID().equals(sig.keyID)));
+    const fpr = key ? fmtFpr(key.getFingerprint()) : null;
+    const uid = key?.users[0]?.userID?.userID ?? null;
+    try {
+      await sig.verified;
+      return { text, status: 'good', signerFingerprint: fpr, signerUid: uid };
+    } catch {
+      return { text, status: 'bad', signerFingerprint: fpr, signerUid: uid };
+    }
+  }
+  return { text, status: 'unknown-key', signerFingerprint: null, signerUid: null };
+}
+
+export function looksClearsigned(text: string): boolean {
+  return text.includes('-----BEGIN PGP SIGNED MESSAGE-----');
+}
+
+/** Encrypt bytes (a file) to public keys; binary OpenPGP output (.gpg). */
+export async function encryptBytes(data: Uint8Array, filename: string, armoredPublicKeys: string[], signerEmail?: string): Promise<Uint8Array> {
+  const encryptionKeys = await Promise.all(armoredPublicKeys.map((k) => openpgp.readKey({ armoredKey: k })));
+  const message = await openpgp.createMessage({ binary: data, filename });
+  const signerFpr = (signerEmail ? activeByEmail.get(signerEmail.toLowerCase()) : null) ?? null;
+  const signer = signerFpr ? sessionKeys.get(signerFpr) : null;
+  return (await openpgp.encrypt({
+    message, encryptionKeys, format: 'binary',
+    ...(signer ? { signingKeys: signer } : {}),
+  })) as Uint8Array;
+}
+
+/** Decrypt a binary or armored OpenPGP file with whichever session key fits. */
+export async function decryptBytes(data: Uint8Array): Promise<{ data: Uint8Array; filename: string | null }> {
+  if (!sessionKeys.size) throw new Error('locked');
+  const head = new TextDecoder().decode(data.subarray(0, 64));
+  const message = head.includes('-----BEGIN PGP')
+    ? await openpgp.readMessage({ armoredMessage: new TextDecoder().decode(data) })
+    : await openpgp.readMessage({ binaryMessage: data });
+  try {
+    const out = await openpgp.decrypt({ message, decryptionKeys: [...sessionKeys.values()], format: 'binary' });
+    return { data: out.data as Uint8Array, filename: out.filename || null };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/session key|decryption key|no private key|not decrypted/i.test(msg)) throw new Error('locked');
+    throw e;
+  }
+}
+
+/** Key IDs a binary/armored file is encrypted to (for the unlock prompt). */
+export async function neededKeyForBytes(email: string, data: Uint8Array): Promise<KeyInfo | null> {
+  const head = new TextDecoder().decode(data.subarray(0, 64));
+  const armored = head.includes('-----BEGIN PGP') ? new TextDecoder().decode(data) : null;
+  const ring = load(email);
+  if (!ring) return null;
+  let wanted: string[];
+  try {
+    const message = armored ? await openpgp.readMessage({ armoredMessage: armored }) : await openpgp.readMessage({ binaryMessage: data });
+    wanted = message.getEncryptionKeyIDs().map((id) => id.toHex().toLowerCase());
+  } catch {
+    return null;
+  }
+  for (const rec of [ring.active, ...ring.retired]) {
+    const key = await openpgp.readKey({ armoredKey: rec.publicKey });
+    const ids = key.getKeys().map((k) => k.getKeyID().toHex().toLowerCase());
+    if (ids.some((id) => wanted.includes(id))) {
+      const fpr = key.getFingerprint();
+      return { fingerprint: fmtFpr(fpr), created: rec.created, isActive: rec === ring.active, unlocked: sessionKeys.has(fpr) };
+    }
+  }
+  return null;
 }

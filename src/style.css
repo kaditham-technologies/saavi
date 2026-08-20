@@ -197,6 +197,25 @@ body.src-system .dot-open { background: var(--accent); box-shadow: 0 0 6px color
 .sig-none { border-color: var(--border); color: var(--ink-3); }
 .hint { font-size: 12.5px; font-weight: 400; color: var(--ink-3); line-height: 1.5; }
 
+/* files */
+.files { display: flex; flex-direction: column; gap: 10px; }
+.dropzone {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; border: 1.5px dashed var(--border); border-radius: 10px;
+  color: var(--ink-3); font-size: 12.5px; transition: border-color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
+}
+.dropzone code { font-family: var(--mono); }
+.dropzone.over { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.file-acts { display: flex; gap: 6px; }
+.file-acts button, .mini {
+  font: inherit; font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--card); color: var(--ink-2); cursor: pointer;
+}
+.file-acts button:hover, .mini:hover { border-color: var(--accent); color: var(--accent); }
+.pass-row { display: flex; gap: 6px; }
+.pass-row input { flex: 1; min-width: 0; }
+.suggest { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
 /* ============ the modal ============ */
 .veil {
   position: fixed; inset: 0; z-index: 50;
@@ -230,6 +249,29 @@ body.src-system .dot-open { background: var(--accent); box-shadow: 0 0 6px color
   background: var(--paper-2); border-radius: 8px; padding: 8px 11px;
   word-break: break-all;
 }
+
+/* key details */
+.details-card { width: min(640px, 100%); }
+.details-body { display: flex; flex-direction: column; gap: 14px; max-height: 50vh; overflow-y: auto; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 13px; margin: 0; }
+.kv dt { color: var(--ink-3); font-size: 12px; }
+.kv dd { margin: 0; }
+.mono { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+.sub h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); margin-bottom: 6px; }
+.uid { font-size: 12.5px; padding: 4px 0; border-bottom: 1px solid var(--hairline); }
+.details-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.details-acts button {
+  font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--card); color: var(--ink-2); cursor: pointer;
+}
+.details-acts button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.details-acts button:disabled { opacity: 0.5; }
+/* ask() dialogs */
+.ask-veil { z-index: 60; }
+.ask-card { width: min(440px, 100%); }
+.ask-code { white-space: pre-wrap; }
+.ask-card .hint { white-space: pre-line; }
+.primary.danger { background: #c0392b !important; border-color: #c0392b !important; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

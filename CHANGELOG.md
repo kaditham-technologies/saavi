@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Key management** (system keyring): a Details panel (double-click or
+  the Details button) with fingerprint, algorithm, expiry, validity,
+  owner trust, user IDs and subkeys — and actions: set expiry, change
+  passphrase, add / revoke user ID, set owner trust, certify another key
+  (local or exportable), export public key, fetch a key from
+  keys.openpgp.org by fingerprint. All through gpg; passphrases via pinentry.
+- **Sign and Verify**: clearsign text with a chosen key and verify
+  clearsigned messages, in both keyrings. Unseal of a clearsigned message
+  verifies it.
+- **Signing is explicit**: a "Sign as" choice in the sealer for both
+  keyrings. Sealing no longer signs silently.
+- **Files** (roadmap #2): seal / unseal files from the sealer or by
+  dropping them on the window; `.gpg` / `.pgp` / `.asc` drops unseal,
+  everything else seals. Binary OpenPGP output, signature verdicts shown.
+- **Passphrase suggestion** in the key wizard: six EFF-diceware words
+  (≈77 bits) from the CSPRNG, shown in clear, with a nudge to keep it in
+  a password manager. A show/hide toggle on the passphrase fields.
+- **Recipient lookup** falls back to keys.openpgp.org when a domain has
+  no WKD (same address check and size cap as WKD).
+- All questions and confirmations are in-app dialogs; no `confirm()` /
+  `prompt()`, which misbehave inside webviews.
 - **System GnuPG keyring** (roadmap #3). A keyring-source switch in the
   toolbar — Saavi store (default, unchanged) or the real `~/.gnupg`. In
   system mode every operation is the user's own `gpg`: list (with

@@ -20,6 +20,16 @@ fn main() {
             gpg::gpg_decrypt,
             gpg::gpg_delete_public,
             gpg::gpg_generate,
+            gpg::gpg_clearsign,
+            gpg::gpg_set_expire,
+            gpg::gpg_passwd,
+            gpg::gpg_add_uid,
+            gpg::gpg_revoke_uid,
+            gpg::gpg_set_ownertrust,
+            gpg::gpg_sign_key,
+            gpg::gpg_recv_key,
+            gpg::gpg_encrypt_file,
+            gpg::gpg_decrypt_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Saavi");

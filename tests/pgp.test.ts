@@ -181,3 +181,52 @@ describe('review follow-ups', () => {
     expect(await pgp.listKeys(ME)).toHaveLength(1);
   });
 });
+
+describe('clearsign / verify / files', () => {
+  it('clearsigns and verifies; a tampered body is BAD; a stranger is unknown', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    await expect(pgp.signText('hi', ME)).rejects.toThrow('locked');
+    await pgp.unlockPrivateKey(ME, PASS);
+    const signed = await pgp.signText('hello world', ME);
+    expect(pgp.looksClearsigned(signed)).toBe(true);
+    const pub = pgp.keysFor(ME)!.publicKey;
+    const ok = await pgp.verifyText(signed, [pub]);
+    expect(ok.status).toBe('good');
+    expect(ok.text).toBe('hello world');
+    expect(ok.signerUid).toContain(ME);
+    const tampered = signed.replace('hello world', 'hello there');
+    expect((await pgp.verifyText(tampered, [pub])).status).toBe('bad');
+    const other = await pgp.generateKeys('x@example.org', 'X', PASS);
+    expect((await pgp.verifyText(signed, [other.publicKey])).status).toBe('unknown-key');
+  });
+
+  it('round-trips a binary file and reports which key it wants', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    const data = new Uint8Array(1024).map((_, i) => (i * 7) & 255);
+    const sealed = await pgp.encryptBytes(data, 'blob.bin', [pgp.keysFor(ME)!.publicKey]);
+    expect(sealed[0] & 0x80).toBe(0x80); // binary packet, not armor
+    await expect(pgp.decryptBytes(sealed)).rejects.toThrow('locked');
+    const need = await pgp.neededKeyForBytes(ME, sealed);
+    expect(need?.isActive).toBe(true);
+    await pgp.unlockPrivateKey(ME, PASS);
+    const out = await pgp.decryptBytes(sealed);
+    expect(out.filename).toBe('blob.bin');
+    expect(Array.from(out.data)).toEqual(Array.from(data));
+  });
+});
+
+describe('explicit signing', () => {
+  it('seals unsigned when asked, even with a key unlocked', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    await pgp.unlockPrivateKey(ME, PASS);
+    const pub = pgp.keysFor(ME)!.publicKey;
+    const unsigned = await pgp.encryptText('x', [pub], ME, { sign: false });
+    const signed = await pgp.encryptText('x', [pub], ME);
+    const a = await openpgp.readMessage({ armoredMessage: unsigned });
+    const b = await openpgp.readMessage({ armoredMessage: signed });
+    const da = await openpgp.decrypt({ message: a, decryptionKeys: await openpgp.decryptKey({ privateKey: await openpgp.readPrivateKey({ armoredKey: pgp.keysFor(ME)!.privateKey }), passphrase: PASS }) });
+    const db = await openpgp.decrypt({ message: b, decryptionKeys: await openpgp.decryptKey({ privateKey: await openpgp.readPrivateKey({ armoredKey: pgp.keysFor(ME)!.privateKey }), passphrase: PASS }) });
+    expect(da.signatures.length).toBe(0);
+    expect(db.signatures.length).toBe(1);
+  });
+});

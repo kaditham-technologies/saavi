@@ -5,7 +5,8 @@ Ordered by intent, not promise.
 1. **OS keychain** — move keystore locking from passphrase-only to the
    platform keychain (GNOME Keyring / macOS Keychain / Windows
    Credential Manager) via the Tauri keyring plugin.
-2. **Files** — drag-and-drop seal/unseal for files, not just text.
+2. ~~**Files**~~ — shipped: seal/unseal via buttons or drag-and-drop, both
+   keyrings, signature verdicts shown.
 3. ~~**System GnuPG keyring**~~ — shipped: the real `~/.gnupg` as a second
    keyring source, by delegating to the user's `gpg` binary (not gpgme or
    Sequoia: no second OpenPGP implementation, no reading gpg's private

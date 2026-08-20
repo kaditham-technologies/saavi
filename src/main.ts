@@ -2,11 +2,14 @@
 // −d (the sealer). Two keyring sources: Saavi's own store (pgp.ts,
 // OpenPGP.js, works anywhere) and the system GnuPG keyring (gpg.ts, the
 // user's own gpg binary, shell only). All crypto lives in those two modules;
-// WKD lookup for the Saavi store in wkd.ts.
+// recipient lookup in wkd.ts / vks.ts; dialogs in ui.ts.
 import './style.css';
 import * as pgp from './pgp';
 import * as gpg from './gpg';
 import { wkdLookup } from './wkd';
+import { vksLookup } from './vks';
+import { ask, confirmBox, notice } from './ui';
+import { generatePassphrase, passphraseBits, describeStrength } from './passphrase';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
@@ -17,6 +20,7 @@ const ICONS: Record<string, string> = {
   save: '<rect x="2.6" y="2.6" width="10.8" height="10.8" rx="1.2"/><path d="M5.2 2.6v3.6h5.6V2.6"/><path d="M5.2 13.4V9.2h5.6v4.2"/>',
   trash: '<path d="M2.8 4.3h10.4"/><path d="M5.6 4.3v-1a1 1 0 0 1 1-1h2.8a1 1 0 0 1 1 1v1"/><path d="m4.3 4.3.6 8.2a1.1 1.1 0 0 0 1.1 1h4a1.1 1.1 0 0 0 1.1-1l.6-8.2"/>',
   refresh: '<path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 1.5v3h-3"/>',
+  info: '<circle cx="8" cy="8" r="5.6"/><path d="M8 7.2v3.6"/><path d="M8 5.2v.2"/>',
 };
 
 for (const holder of document.querySelectorAll<HTMLElement>('[data-ico]')) {
@@ -31,6 +35,7 @@ function el(tag: string, cls?: string, text?: string): HTMLElement {
 }
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+const status = (msg: string): void => { $('status').textContent = msg; };
 
 /** Every address with a ring in the Saavi store. */
 function ringAddresses(): string[] {
@@ -42,13 +47,12 @@ function ringAddresses(): string[] {
   return out.sort();
 }
 
-/** Save text through the shell's dialog (browser: anchor download).
- *  Returns the path, '' for a browser download, null if cancelled. */
+// ---------- files through the shell ----------
 async function saveTextFile(filename: string, text: string): Promise<string | null> {
   if (gpg.inShell()) {
     const { save } = await import('@tauri-apps/plugin-dialog');
     const { writeTextFile } = await import('@tauri-apps/plugin-fs');
-    const path = await save({ defaultPath: filename, filters: [{ name: 'OpenPGP key', extensions: ['asc', 'txt'] }] });
+    const path = await save({ defaultPath: filename, filters: [{ name: 'OpenPGP', extensions: ['asc', 'txt'] }] });
     if (!path) return null;
     await writeTextFile(path, text);
     return path;
@@ -60,6 +64,17 @@ async function saveTextFile(filename: string, text: string): Promise<string | nu
   URL.revokeObjectURL(a.href);
   return '';
 }
+async function pickFile(title: string): Promise<string | null> {
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const p = await open({ title, multiple: false, directory: false });
+  return typeof p === 'string' ? p : null;
+}
+async function pickSave(defaultPath: string): Promise<string | null> {
+  const { save } = await import('@tauri-apps/plugin-dialog');
+  return save({ defaultPath });
+}
+const baseName = (p: string): string => p.split(/[\\/]/).pop() ?? p;
+const dirName = (p: string): string => p.slice(0, p.length - baseName(p).length);
 
 // ---------- themes (shared palette family with Kaditham Mail) ----------
 const THEME_NAMES = ['paper', 'aurora', 'solarium', 'ink', 'nocturne', 'phosphor'];
@@ -104,16 +119,17 @@ function setSource(s: Source): void {
   ($('ring-src') as HTMLSelectElement).value = s;
   document.body.classList.toggle('src-system', s === 'system');
   $('col-status').textContent = s === 'system' ? 'Trust' : 'Status';
-  $('seal-sign-fld').hidden = s !== 'system';
   $('seal-to-label').textContent = s === 'system'
     ? 'To (addresses or fingerprints in your GnuPG keyring — WKD for unknown addresses — or paste a public key)'
-    : 'To (addresses — keys found via WKD — or paste a public key)';
+    : 'To (addresses — found via WKD or keys.openpgp.org — or paste a public key)';
+  $('files').hidden = !gpg.inShell();
   sel = null;
   void refreshKeys();
 }
 
 async function detectGpg(): Promise<void> {
   const note = $('ring-note');
+  $('files').hidden = !gpg.inShell();
   if (!gpg.inShell()) {
     $('ring-src-wrap').hidden = true;
     return;
@@ -129,8 +145,7 @@ async function detectGpg(): Promise<void> {
     opt.disabled = false;
     note.textContent = `GnuPG ${gpgInfo.version ?? ''} · ${gpgInfo.homedir ?? gpgInfo.path ?? ''}`;
     note.title = gpgInfo.path ?? '';
-    const saved = localStorage.getItem('saavi-source');
-    if (saved === 'system') setSource('system');
+    if (localStorage.getItem('saavi-source') === 'system') setSource('system');
   } else {
     opt.disabled = true;
     note.textContent = 'System keyring needs GnuPG: Gpg4win (Windows), GPG Suite or Homebrew (macOS), your package manager (Linux).';
@@ -153,6 +168,7 @@ let sel: Sel | null = null;
 
 function syncTools(): void {
   ($('act-backup') as HTMLButtonElement).disabled = !sel;
+  ($('act-details') as HTMLButtonElement).disabled = !sel;
   ($('act-delete') as HTMLButtonElement).disabled =
     !sel || (sel.kind === 'saavi' ? sel.isActive : sel.hasSecret);
   ($('act-backup').querySelector('span:last-child') as HTMLElement).textContent =
@@ -168,12 +184,10 @@ function rowFor(cells: { dot: boolean; dotTitle: string; addr: string; id: strin
   row.setAttribute('role', 'option');
   const dot = el('span', 'dot' + (cells.dot ? ' dot-open' : ''));
   dot.title = cells.dotTitle;
-  row.append(dot);
-  row.append(el('span', 'c-addr', cells.addr));
-  row.append(el('span', 'c-id', cells.id));
-  row.append(el('span', 'c-date', cells.date));
-  row.append(el('span', 'chip c-end' + (cells.chipOn ? ' chip-on' : ''), cells.chip));
+  row.append(dot, el('span', 'c-addr', cells.addr), el('span', 'c-id', cells.id), el('span', 'c-date', cells.date),
+    el('span', 'chip c-end' + (cells.chipOn ? ' chip-on' : ''), cells.chip));
   row.title = cells.title;
+  row.addEventListener('dblclick', () => void openDetails());
   return row;
 }
 
@@ -185,6 +199,9 @@ function markSelected(rows: HTMLElement, row: HTMLElement): void {
   syncTools();
 }
 
+const keyLabel = (k: gpg.SystemKey): string => k.uids[0]?.email || k.uids[0]?.name || k.key_id;
+const dead = (k: gpg.SystemKey): boolean => k.revoked || k.expired || k.disabled;
+
 async function refreshKeys(): Promise<void> {
   const rows = $('rows');
   rows.replaceChildren(el('p', 'loading', 'Reading the keyring…'));
@@ -193,9 +210,7 @@ async function refreshKeys(): Promise<void> {
 
   const flat: { email: string; info: pgp.KeyInfo }[] = [];
   for (const email of ringAddresses()) {
-    for (const info of await pgp.listKeys(email).catch(() => [] as pgp.KeyInfo[])) {
-      flat.push({ email, info });
-    }
+    for (const info of await pgp.listKeys(email).catch(() => [] as pgp.KeyInfo[])) flat.push({ email, info });
   }
   if (source !== go) return;
   rows.replaceChildren();
@@ -225,8 +240,13 @@ async function refreshKeys(): Promise<void> {
   }
   const unlocked = flat.filter((f) => f.info.unlocked).length;
   const n = ringAddresses().length;
-  $('status').textContent =
-    `Saavi store · ${flat.length} key${flat.length === 1 ? '' : 's'} · ${n} address${n === 1 ? '' : 'es'} · ${unlocked} unlocked this session`;
+  status(`Saavi store · ${flat.length} key${flat.length === 1 ? '' : 's'} · ${n} address${n === 1 ? '' : 'es'} · ${unlocked} unlocked this session`);
+  // Sign-as: own addresses (unlock is prompted when needed).
+  const sign = $('seal-sign') as HTMLSelectElement;
+  const prev = sign.value;
+  sign.replaceChildren(new Option("Don't sign", ''));
+  for (const email of ringAddresses()) sign.append(new Option(email, email));
+  if ([...sign.options].some((o) => o.value === prev)) sign.value = prev;
   syncTools();
 }
 
@@ -235,13 +255,11 @@ async function refreshSystemKeys(rows: HTMLElement): Promise<void> {
     systemKeys = await gpg.listKeys();
   } catch (e) {
     rows.replaceChildren(el('p', 'empty', `Could not read the GnuPG keyring: ${errMsg(e)}`));
-    $('status').textContent = 'System GnuPG keyring · unavailable';
+    status('System GnuPG keyring · unavailable');
     return;
   }
   if (source !== 'system') return;
-  // Secret keys first, then by primary user ID.
-  const label = (k: gpg.SystemKey): string => k.uids[0]?.email || k.uids[0]?.name || k.key_id;
-  systemKeys.sort((a, b) => Number(b.has_secret) - Number(a.has_secret) || label(a).localeCompare(label(b)));
+  systemKeys.sort((a, b) => Number(b.has_secret) - Number(a.has_secret) || keyLabel(a).localeCompare(keyLabel(b)));
   rows.replaceChildren();
   if (!systemKeys.length) {
     const empty = el('div', 'empty');
@@ -252,16 +270,15 @@ async function refreshSystemKeys(rows: HTMLElement): Promise<void> {
     rows.append(empty);
   }
   for (const k of systemKeys) {
-    const dead = k.revoked || k.expired || k.disabled;
     const state = k.revoked ? 'revoked' : k.expired ? 'expired' : k.disabled ? 'disabled' : k.validity;
     const row = rowFor({
       dot: k.has_secret, dotTitle: k.has_secret ? 'Secret key in your keyring' : 'Public key only',
-      addr: label(k) + (k.uids.length > 1 ? ` +${k.uids.length - 1}` : ''),
+      addr: keyLabel(k) + (k.uids.length > 1 ? ` +${k.uids.length - 1}` : ''),
       id: '…' + k.fingerprint.slice(-8),
       date: fmtDate(k.created),
-      chip: state, chipOn: !dead && (k.validity === 'ultimate' || k.validity === 'full'),
+      chip: state, chipOn: !dead(k) && (k.validity === 'ultimate' || k.validity === 'full'),
       title: `${gpg.fmtFpr(k.fingerprint)}\n${k.algo}${k.expires ? ` · expires ${k.expires}` : ''}\n${k.uids.map((u) => u.uid).join('\n')}`,
-      dead,
+      dead: dead(k),
     });
     if (sel?.kind === 'system' && sel.fpr === k.fingerprint) row.classList.add('sel');
     row.addEventListener('click', () => {
@@ -271,40 +288,34 @@ async function refreshSystemKeys(rows: HTMLElement): Promise<void> {
     rows.append(row);
   }
   const secret = systemKeys.filter((k) => k.has_secret).length;
-  $('status').textContent =
-    `System GnuPG keyring · ${systemKeys.length} key${systemKeys.length === 1 ? '' : 's'} · ${secret} with a secret key · trust is gpg's`;
-  // Sign-as choices for the sealer.
+  status(`System GnuPG keyring · ${systemKeys.length} key${systemKeys.length === 1 ? '' : 's'} · ${secret} with a secret key · trust is gpg's`);
   const sign = $('seal-sign') as HTMLSelectElement;
   const prev = sign.value;
   sign.replaceChildren(new Option("Don't sign", ''));
-  for (const k of systemKeys.filter((k) => k.has_secret && k.can_sign && !(k.revoked || k.expired || k.disabled))) {
-    sign.append(new Option(`${label(k)} (…${k.fingerprint.slice(-8)})`, k.fingerprint));
-  }
+  for (const k of signingKeys()) sign.append(new Option(`${keyLabel(k)} (…${k.fingerprint.slice(-8)})`, k.fingerprint));
   if ([...sign.options].some((o) => o.value === prev)) sign.value = prev;
   syncTools();
 }
+const signingKeys = (): gpg.SystemKey[] => systemKeys.filter((k) => k.has_secret && k.can_sign && !dead(k));
 
 $('act-refresh').addEventListener('click', () => void refreshKeys());
 $('act-new').addEventListener('click', () => openModal('generate'));
 $('act-import').addEventListener('click', () => openModal('import'));
+$('act-details').addEventListener('click', () => void openDetails());
 $('act-backup').addEventListener('click', async () => {
   if (!sel) return;
   try {
     if (sel.kind === 'saavi') {
       const path = await pgp.saveBackup(sel.email, sel.fpr);
-      if (path !== null) $('status').textContent = path ? `Backup saved to ${path}` : 'Backup downloaded.';
+      if (path !== null) status(path ? `Backup saved to ${path}` : 'Backup downloaded.');
       return;
     }
     const armored = sel.hasSecret ? await gpg.exportSecret(sel.fpr) : await gpg.exportPublic(sel.fpr);
     const base = (sel.email || sel.fpr.slice(-16)).replace(/[^a-z0-9.@-]/gi, '_');
     const path = await saveTextFile(`${base}${sel.hasSecret ? '-secret' : ''}.asc`, armored);
-    if (path !== null) {
-      $('status').textContent = path
-        ? `${sel.hasSecret ? 'Secret key (passphrase-protected by gpg)' : 'Public key'} saved to ${path}`
-        : 'Key downloaded.';
-    }
+    if (path !== null) status(path ? `${sel.hasSecret ? 'Secret key (passphrase-protected by gpg)' : 'Public key'} saved to ${path}` : 'Key downloaded.');
   } catch (e) {
-    $('status').textContent = `NOT saved: ${errMsg(e)}`;
+    status(`NOT saved: ${errMsg(e)}`);
   }
 });
 $('act-delete').addEventListener('click', async () => {
@@ -312,39 +323,187 @@ $('act-delete').addEventListener('click', async () => {
   try {
     if (sel.kind === 'saavi') {
       if (sel.isActive) return;
-      if (!confirm(`Delete this retired key for ${sel.email} from this device?\n\nAnything sealed to it becomes unreadable here unless its backup is re-imported.`)) return;
+      if (!await confirmBox('Delete retired key?', `Delete this retired key for ${sel.email} from this device? Anything sealed to it becomes unreadable here unless its backup is re-imported.`, 'Delete', true, sel.fpr)) return;
       await pgp.deleteRetired(sel.email, sel.fpr);
     } else {
       if (sel.hasSecret) return;
-      if (!confirm(`Remove the public key ${gpg.fmtFpr(sel.fpr)}${sel.email ? ` (${sel.email})` : ''} from your GnuPG keyring?`)) return;
+      if (!await confirmBox('Remove public key?', `Remove this public key${sel.email ? ` (${sel.email})` : ''} from your GnuPG keyring?`, 'Remove', true, gpg.fmtFpr(sel.fpr))) return;
       await gpg.deletePublic(sel.fpr);
     }
     sel = null;
     void refreshKeys();
   } catch (e) {
-    $('status').textContent = `Not deleted: ${errMsg(e)}`;
+    status(`Not deleted: ${errMsg(e)}`);
   }
 });
+
+// ---------- key details (double-click / Details) ----------
+function detailRow(grid: HTMLElement, k: string, v: string, mono = false): void {
+  grid.append(el('dt', undefined, k), el('dd', mono ? 'mono' : undefined, v));
+}
+
+async function openDetails(): Promise<void> {
+  if (!sel) return;
+  const veil = $('details');
+  const body = $('details-body');
+  const acts = $('details-acts');
+  body.replaceChildren();
+  acts.replaceChildren();
+  const action = (label: string, fn: () => Promise<void>, cls = ''): void => {
+    const b = el('button', cls, label);
+    b.addEventListener('click', async () => {
+      (b as HTMLButtonElement).disabled = true;
+      try { await fn(); } catch (e) { await notice('Not done', errMsg(e)); } finally { (b as HTMLButtonElement).disabled = false; }
+    });
+    acts.append(b);
+  };
+  const copyFpr = (fpr: string) => async (): Promise<void> => { await navigator.clipboard.writeText(fpr); status('Fingerprint copied.'); };
+
+  if (sel.kind === 'saavi') {
+    const s = sel;
+    const ring = pgp.ringFor(s.email);
+    const want = s.fpr.replace(/\s+/g, '').toLowerCase();
+    let rec: pgp.KeyRecord | null = null;
+    for (const r of ring ? [ring.active, ...ring.retired] : []) {
+      if ((await pgp.fingerprintOf(r.publicKey)).replace(/\s+/g, '').toLowerCase() === want) { rec = r; break; }
+    }
+    $('details-title').textContent = s.email;
+    const grid = el('dl', 'kv');
+    detailRow(grid, 'Fingerprint', s.fpr, true);
+    detailRow(grid, 'Created', rec ? fmtDate(rec.created) : '—');
+    detailRow(grid, 'Status', s.isActive ? 'active — signs and receives new messages' : 'retired — still opens old messages');
+    detailRow(grid, 'Unlocked', pgp.isUnlocked(s.email) && s.isActive ? 'yes, this session' : 'no');
+    detailRow(grid, 'Store', 'Saavi (OpenPGP.js), passphrase-locked on this device');
+    body.append(grid);
+    action('Copy fingerprint', copyFpr(s.fpr));
+    if (rec) {
+      const pub = rec.publicKey;
+      action('Export public key…', async () => {
+        const p = await saveTextFile(`${s.email}-public.asc`, pub);
+        if (p !== null) status(p ? `Public key saved to ${p}` : 'Public key downloaded.');
+      });
+      action('Show public key', async () => { await notice('Public key', 'Share this freely — it is what others seal to.', pub); });
+    }
+  } else {
+    const s = sel;
+    const k = systemKeys.find((x) => x.fingerprint === s.fpr);
+    if (!k) return;
+    $('details-title').textContent = keyLabel(k);
+    const grid = el('dl', 'kv');
+    detailRow(grid, 'Fingerprint', gpg.fmtFpr(k.fingerprint), true);
+    detailRow(grid, 'Algorithm', k.algo);
+    detailRow(grid, 'Created', fmtDate(k.created));
+    detailRow(grid, 'Expires', k.expires ? fmtDate(k.expires) : 'never');
+    detailRow(grid, 'Validity', k.revoked ? 'revoked' : k.expired ? 'expired' : k.validity);
+    detailRow(grid, 'Owner trust', k.owner_trust);
+    detailRow(grid, 'Secret key', k.has_secret ? 'in your keyring' : 'no — public only');
+    detailRow(grid, 'Can', [k.can_encrypt && 'encrypt', k.can_sign && 'sign'].filter(Boolean).join(', ') || '—');
+    body.append(grid);
+    const uids = el('div', 'sub');
+    uids.append(el('h3', undefined, 'User IDs'));
+    for (const u of k.uids) uids.append(el('div', 'uid', `${u.uid}  ·  ${u.validity}`));
+    body.append(uids);
+    if (k.subkeys.length) {
+      const subs = el('div', 'sub');
+      subs.append(el('h3', undefined, 'Subkeys'));
+      for (const sk of k.subkeys) {
+        subs.append(el('div', 'uid mono', `${gpg.fmtFpr(sk.fingerprint)}  ${sk.algo}  [${sk.caps.toUpperCase()}]${sk.expires ? `  expires ${sk.expires}` : ''}${sk.revoked ? '  REVOKED' : sk.expired ? '  EXPIRED' : ''}`));
+      }
+      body.append(subs);
+    }
+    action('Copy fingerprint', copyFpr(gpg.fmtFpr(k.fingerprint)));
+    action('Export public key…', async () => {
+      const p = await saveTextFile(`${(k.uids[0]?.email || k.key_id).replace(/[^a-z0-9.@-]/gi, '_')}-public.asc`, await gpg.exportPublic(k.fingerprint));
+      if (p !== null) status(p ? `Public key saved to ${p}` : 'Public key downloaded.');
+    });
+    action('Owner trust…', async () => {
+      const r = await ask({
+        title: 'Owner trust', message: 'How much do you trust this person to certify OTHER people\'s keys? This is gpg\'s web-of-trust setting, not whether the key is theirs.',
+        fields: [{ name: 'level', label: 'Trust', type: 'select', value: { unknown: '2', never: '3', marginal: '4', full: '5', ultimate: '6' }[k.owner_trust] ?? '2',
+          options: [{ value: '2', label: 'Unknown' }, { value: '3', label: 'Never' }, { value: '4', label: 'Marginal' }, { value: '5', label: 'Full' }, { value: '6', label: 'Ultimate (my own key)' }] }],
+        ok: 'Set',
+      });
+      if (!r) return;
+      await gpg.setOwnertrust(k.fingerprint, Number(r.level));
+      status('Owner trust updated.');
+      await refreshKeys(); await openDetails();
+    });
+    const signers = signingKeys().filter((x) => x.fingerprint !== k.fingerprint);
+    if (signers.length) {
+      action('Certify…', async () => {
+        const r = await ask({
+          title: 'Certify this key', message: 'Sign this key with yours to say "I verified this fingerprint belongs to this person". Compare the fingerprint out of band first.',
+          code: gpg.fmtFpr(k.fingerprint),
+          fields: [
+            { name: 'signer', label: 'With my key', type: 'select', options: signers.map((x) => ({ value: x.fingerprint, label: `${keyLabel(x)} (…${x.fingerprint.slice(-8)})` })) },
+            { name: 'scope', label: 'Scope', type: 'select', value: 'local', options: [{ value: 'local', label: 'Local — only my keyring (lsign)' }, { value: 'export', label: 'Exportable — others may rely on it' }] },
+          ],
+          ok: 'Certify',
+        });
+        if (!r) return;
+        await gpg.signKey(k.fingerprint, r.signer, r.scope === 'local');
+        status('Key certified (gpg asked for your passphrase).');
+        await refreshKeys(); await openDetails();
+      });
+    }
+    if (k.has_secret) {
+      action('Set expiry…', async () => {
+        const r = await ask({
+          title: 'Key expiry', message: 'An expiry is a safety net: a lost key stops being valid on its own. You can extend it any time before (or after) it passes.',
+          fields: [{ name: 'expire', label: 'Expires', value: '2y', hint: '0 = never · 2y · 18m · 90d · or a date 2030-01-31' }],
+          ok: 'Set',
+        });
+        if (!r) return;
+        await gpg.setExpire(k.fingerprint, r.expire);
+        status('Expiry updated on the key and its subkeys.');
+        await refreshKeys(); await openDetails();
+      });
+      action('Change passphrase…', async () => {
+        await gpg.passwd(k.fingerprint);
+        status('Passphrase changed (through pinentry).');
+      });
+      action('Add user ID…', async () => {
+        const r = await ask({ title: 'Add a user ID', message: 'Another name/address this key speaks for.',
+          fields: [{ name: 'name', label: 'Name' }, { name: 'email', label: 'Email address', type: 'email' }], ok: 'Add' });
+        if (!r) return;
+        await gpg.addUid(k.fingerprint, r.name, r.email);
+        status('User ID added.');
+        await refreshKeys(); await openDetails();
+      });
+      if (k.uids.length > 1) {
+        action('Revoke user ID…', async () => {
+          const r = await ask({ title: 'Revoke a user ID', message: 'Marks the name/address as no longer valid for this key. Cannot be undone; the key itself stays.',
+            fields: [{ name: 'uid', label: 'User ID', type: 'select', options: k.uids.map((u) => ({ value: u.uid, label: u.uid })) }], ok: 'Revoke', danger: true });
+          if (!r) return;
+          await gpg.revokeUid(k.fingerprint, r.uid);
+          status('User ID revoked.');
+          await refreshKeys(); await openDetails();
+        });
+      }
+    }
+  }
+  veil.hidden = false;
+  $('details-close').focus();
+}
+$('details-close').addEventListener('click', () => { $('details').hidden = true; });
 
 // ---------- the modal (generate / import / unlock) ----------
 type ModalMode = 'generate' | 'import' | 'unlock';
 let modalMode: ModalMode = 'generate';
 let unlockFor: { email: string; fingerprint?: string; then: () => void } | null = null;
-// When set, the modal is on the "key ready" step: a Saavi address, or a
-// system fingerprint.
 let doneFor: { kind: Source; ref: string } | null = null;
 
 function setSrc(src: 'generate' | 'import'): void {
   modalMode = src;
-  for (const b of $('modal-src').querySelectorAll('button')) {
-    b.classList.toggle('on', b.dataset.src === src);
-  }
+  for (const b of $('modal-src').querySelectorAll('button')) b.classList.toggle('on', b.dataset.src === src);
   const sys = source === 'system';
   $('f-gen').hidden = src !== 'generate';
   $('f-imp').hidden = src !== 'import';
   $('f-email2').hidden = sys;
   $('f-pass').hidden = sys;
   $('f-pass2').hidden = sys || src !== 'generate';
+  $('f-suggest').hidden = sys || src !== 'generate';
+  $('f-fpr').hidden = !sys || src !== 'import';
   $('m-import-label').textContent = sys
     ? 'Armored public or secret key (gpg --export / --export-secret-keys --armor)'
     : 'Armored private key or Saavi backup file';
@@ -359,11 +518,15 @@ function openModal(mode: ModalMode, unlock?: { email: string; fingerprint?: stri
   unlockFor = mode === 'unlock' ? unlock ?? null : null;
   doneFor = null;
   ($('modal-form') as HTMLFormElement).reset();
+  ($('m-pass') as HTMLInputElement).type = 'password';
+  ($('m-pass2') as HTMLInputElement).type = 'password';
   $('m-err').hidden = true;
   $('m-strength').textContent = '';
   $('f-done').hidden = true;
   $('f-pass').hidden = false;
   $('f-email2').hidden = false;
+  $('f-suggest').hidden = true;
+  $('f-fpr').hidden = true;
   ($('m-cancel') as HTMLButtonElement).hidden = false;
   $('m-go').textContent = 'Continue';
   $('modal-src').hidden = mode === 'unlock';
@@ -385,13 +548,30 @@ function openModal(mode: ModalMode, unlock?: { email: string; fingerprint?: stri
 
 function closeModal(): void {
   $('modal').hidden = true;
-  if (doneFor) {
-    doneFor = null;
-    void refreshKeys();
-  }
+  if (doneFor) { doneFor = null; void refreshKeys(); }
 }
-
 $('m-cancel').addEventListener('click', closeModal);
+
+// Suggest a passphrase: diceware, shown in clear so it can be copied into a
+// password manager — the right home for it.
+$('m-suggest').addEventListener('click', () => {
+  const p = generatePassphrase(6);
+  for (const id of ['m-pass', 'm-pass2']) {
+    const i = $(id) as HTMLInputElement;
+    i.value = p;
+    i.type = 'text';
+  }
+  $('m-strength').textContent = `Generated: 6 random words, ≈${passphraseBits(6)} bits. Store it in a password manager (KeePassXC, Bitwarden) before you continue.`;
+});
+$('m-pass-show').addEventListener('click', () => {
+  const i = $('m-pass') as HTMLInputElement;
+  const j = $('m-pass2') as HTMLInputElement;
+  const t = i.type === 'password' ? 'text' : 'password';
+  i.type = t; j.type = t;
+});
+$('m-pass').addEventListener('input', () => {
+  $('m-strength').textContent = describeStrength(($('m-pass') as HTMLInputElement).value).label;
+});
 
 $('m-save-backup').addEventListener('click', async () => {
   if (!doneFor) return;
@@ -403,27 +583,18 @@ $('m-save-backup').addEventListener('click', async () => {
       : await saveTextFile(`${doneFor.ref.slice(-16)}-secret.asc`, await gpg.exportSecret(doneFor.ref));
     $('done-saved').textContent =
       path === null ? 'Not saved yet — choose a location for the backup.'
-      : path === '' ? 'Backup downloaded.'
-      : `Backup saved to ${path}`;
+      : path === '' ? 'Backup downloaded.' : `Backup saved to ${path}`;
   } catch (e2) {
     $('done-saved').textContent = `Could not save: ${errMsg(e2)}`;
   } finally {
     b.disabled = false;
   }
 });
-$('m-pass').addEventListener('input', () => {
-  const n = ($('m-pass') as HTMLInputElement).value.length;
-  $('m-strength').textContent =
-    n === 0 ? '' : n < 12 ? `${n}/12 characters — keep going` : n < 20 ? 'Acceptable — longer is stronger' : 'Strong passphrase';
-});
 
 function showDone(fingerprint: string, sub: string): void {
   $('modal-title').textContent = 'Your key is ready';
   $('modal-sub').textContent = sub;
-  $('modal-src').hidden = true;
-  $('f-gen').hidden = true;
-  $('f-pass').hidden = true;
-  $('f-pass2').hidden = true;
+  for (const id of ['modal-src', 'f-gen', 'f-pass', 'f-pass2', 'f-suggest']) $(id).hidden = true;
   $('m-strength').textContent = '';
   $('done-fpr').textContent = fingerprint;
   $('done-saved').textContent = '';
@@ -451,15 +622,15 @@ $('modal-form').addEventListener('submit', async (e) => {
       then();
     } else if (modalMode === 'import') {
       const src = ($('m-import') as HTMLTextAreaElement).value.trim();
-      if (!src) throw new Error('Paste the key first.');
+      const fpr = ($('m-fpr') as HTMLInputElement).value.trim();
       if (source === 'system') {
-        const r = await gpg.importKey(src);
+        if (!src && !fpr) throw new Error('Paste a key, or give a fingerprint to fetch.');
+        const r = src ? await gpg.importKey(src) : await gpg.recvKey(fpr);
         $('modal').hidden = true;
-        $('status').textContent =
-          `gpg imported ${r.imported} new key${r.imported === 1 ? '' : 's'}` +
-          (r.secret_imported ? ` (${r.secret_imported} secret)` : '') +
-          (r.unchanged ? `, ${r.unchanged} unchanged` : '') + '.';
+        status(`gpg imported ${r.imported} new key${r.imported === 1 ? '' : 's'}` +
+          (r.secret_imported ? ` (${r.secret_imported} secret)` : '') + (r.unchanged ? `, ${r.unchanged} unchanged` : '') + '.');
       } else {
+        if (!src) throw new Error('Paste the key first.');
         const email = ($('m-email2') as HTMLInputElement).value.trim().toLowerCase();
         if (!EMAIL_RE.test(email)) throw new Error('Give the address this key belongs to.');
         await pgp.importKey(email, src, pass);
@@ -476,7 +647,7 @@ $('modal-form').addEventListener('submit', async (e) => {
         showDone(gpg.fmtFpr(fpr), 'Stored in your GnuPG keyring with ultimate trust. A backup is the secret key as gpg exports it — still locked with the passphrase you gave pinentry.');
       } else {
         if (pass !== ($('m-pass2') as HTMLInputElement).value) throw new Error('The passphrases do not match.');
-        if (pass.length < 12) throw new Error('Use at least 12 characters — this passphrase is the whole lock.');
+        if (pass.length < 12) throw new Error('Use at least 12 characters — this passphrase is the whole lock. "Suggest one" makes a strong one for you.');
         const rec = await pgp.generateKeys(email, name, pass, algo);
         await pgp.unlockPrivateKey(email, pass);
         doneFor = { kind: 'saavi', ref: email };
@@ -494,7 +665,10 @@ $('modal-form').addEventListener('submit', async (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('modal').hidden) return closeModal();
+  if (e.key === 'Escape') {
+    if (!$('details').hidden) { $('details').hidden = true; return; }
+    if (!$('modal').hidden) return closeModal();
+  }
   const mod = e.metaKey || e.ctrlKey;
   if (!mod || !$('modal').hidden) return;
   if (e.key === '1') { e.preventDefault(); selectTab('keys'); }
@@ -504,10 +678,8 @@ document.addEventListener('keydown', (e) => {
 
 // ---------- the sealer (−d) ----------
 const sealErr = $('seal-err');
-function sealFail(msg: string): void {
-  sealErr.textContent = msg;
-  sealErr.hidden = false;
-}
+function sealFail(msg: string): void { sealErr.textContent = msg; sealErr.hidden = false; }
+function sealReset(): void { sealErr.hidden = true; $('seal-out-fld').hidden = true; $('seal-sig').hidden = true; }
 function sealShow(label: string, text: string, sigs?: gpg.SignatureInfo[] | null): void {
   $('seal-out-label').textContent = label;
   ($('seal-out') as HTMLTextAreaElement).value = text;
@@ -517,87 +689,142 @@ function sealShow(label: string, text: string, sigs?: gpg.SignatureInfo[] | null
   sig.replaceChildren();
   if (sigs === undefined) { sig.hidden = true; return; }
   sig.hidden = false;
-  if (!sigs || !sigs.length) {
-    sig.append(el('span', 'sig sig-none', 'Unsigned — nothing vouches for who wrote this.'));
-    return;
-  }
+  if (!sigs || !sigs.length) { sig.append(el('span', 'sig sig-none', 'Unsigned — nothing vouches for who wrote this.')); return; }
   for (const s of sigs) {
-    sig.append(el('span', `sig sig-${s.status === 'good' && (s.trust === 'ultimate' || s.trust === 'full') ? 'good' : s.status === 'bad' ? 'bad' : 'warn'}`, gpg.describeSignature(s)));
+    const cls = s.status === 'good' && (s.trust === 'ultimate' || s.trust === 'full') ? 'good' : s.status === 'bad' ? 'bad' : 'warn';
+    sig.append(el('span', `sig sig-${cls}`, gpg.describeSignature(s)));
   }
+}
+const recipientsRaw = (): string => ($('seal-to') as HTMLInputElement).value.trim();
+const signAs = (): string => ($('seal-sign') as HTMLSelectElement).value;
+
+/** Saavi store: resolve the To field to armored public keys. */
+async function resolveSaaviRecipients(toRaw: string): Promise<{ keys: string[]; missing: string[] }> {
+  const keys: string[] = [];
+  const missing: string[] = [];
+  if (toRaw.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
+    keys.push(pgp.normalizeKeyArmor(toRaw));
+    return { keys, missing };
+  }
+  for (const addr of toRaw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)) {
+    const found = pgp.keysFor(addr)?.publicKey ?? await wkdLookup(addr) ?? await vksLookup(addr);
+    if (found) keys.push(found); else missing.push(addr);
+  }
+  return { keys, missing };
+}
+
+/** Make sure the Saavi signing key is unlocked; prompts if not. Resolves false if the user bails. */
+function ensureUnlocked(email: string): Promise<boolean> {
+  if (pgp.isUnlocked(email)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    openModal('unlock', { email, then: () => resolve(true) });
+    const onClose = (): void => { if ($('modal').hidden) { resolve(false); obs.disconnect(); } };
+    const obs = new MutationObserver(onClose);
+    obs.observe($('modal'), { attributes: true, attributeFilter: ['hidden'] });
+  });
+}
+
+/** System: resolve To (pasted key → import) to gpg recipients. */
+async function resolveSystemRecipients(toRaw: string): Promise<string[]> {
+  if (toRaw.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
+    const r = await gpg.importKey(pgp.normalizeKeyArmor(toRaw));
+    status(`Pasted key imported into GnuPG: ${r.fingerprints.map(gpg.fmtFpr).join(', ')}`);
+    return r.fingerprints;
+  }
+  return toRaw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+async function untrustedOk(untrusted: string[]): Promise<boolean> {
+  return confirmBox('gpg does not trust this key',
+    `Nobody you trust has certified the key${untrusted.length === 1 ? '' : 's'} for:\n${untrusted.join(', ')}\n\nand you have not verified the fingerprint. Encrypt to it anyway, this once?`,
+    'Encrypt anyway');
 }
 
 async function sealWithSystem(text: string, toRaw: string): Promise<void> {
-  const recipients: string[] = [];
-  if (toRaw.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
-    // gpg can only encrypt to keys in its keyring: import the pasted key
-    // (as gpg would), then address it by fingerprint.
-    const r = await gpg.importKey(pgp.normalizeKeyArmor(toRaw));
-    recipients.push(...r.fingerprints);
-    $('status').textContent = `Pasted key imported into GnuPG: ${r.fingerprints.map(gpg.fmtFpr).join(', ')}`;
-  } else {
-    recipients.push(...toRaw.split(',').map((s) => s.trim()).filter(Boolean));
-  }
-  const signWith = ($('seal-sign') as HTMLSelectElement).value || null;
+  const recipients = await resolveSystemRecipients(toRaw);
+  const signWith = signAs() || null;
   let r = await gpg.encrypt(text, recipients, { signWith });
   if (!r.armored && r.untrusted.length && !r.missing.length) {
-    const ok = confirm(
-      `gpg does not trust the key${r.untrusted.length === 1 ? '' : 's'} for:\n  ${r.untrusted.join('\n  ')}\n\n` +
-      'Nobody you trust has certified it, and you have not verified its fingerprint. ' +
-      'Encrypt to it anyway, this once?');
-    if (!ok) return sealFail('Not sealed — verify the fingerprint (gpg --fingerprint) and sign the key, then try again.');
+    if (!await untrustedOk(r.untrusted)) return sealFail('Not sealed — verify the fingerprint and certify the key (Details → Certify), then try again.');
     r = await gpg.encrypt(text, recipients, { signWith, trustAll: true });
   }
   if (!r.armored) {
-    return sealFail(
-      r.missing.length
-        ? `No usable key in your GnuPG keyring (or via WKD) for: ${r.missing.join(', ')}. Import their public key first.`
-        : 'gpg could not encrypt.');
+    return sealFail(r.missing.length
+      ? `No usable key in your GnuPG keyring (or via WKD) for: ${r.missing.join(', ')}. Import their public key first.`
+      : 'gpg could not encrypt.');
   }
   sealShow(signWith ? 'Sealed and signed message' : 'Sealed message', r.armored);
 }
 
 $('seal-enc').addEventListener('click', async () => {
-  sealErr.hidden = true;
-  $('seal-out-fld').hidden = true;
-  $('seal-sig').hidden = true;
+  sealReset();
   const text = ($('seal-in') as HTMLTextAreaElement).value;
   if (!text.trim()) return sealFail('There is nothing to seal yet.');
-  const toRaw = ($('seal-to') as HTMLInputElement).value.trim();
+  const toRaw = recipientsRaw();
   if (!toRaw) return sealFail('Name at least one recipient — an address, or a pasted public key.');
   try {
     if (source === 'system') return await sealWithSystem(text, toRaw);
-    const keys: string[] = [];
-    const missing: string[] = [];
-    if (toRaw.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
-      keys.push(pgp.normalizeKeyArmor(toRaw));
-    } else {
-      for (const addr of toRaw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)) {
-        const own = pgp.keysFor(addr);
-        const found = own?.publicKey ?? await wkdLookup(addr);
-        if (found) keys.push(found);
-        else missing.push(addr);
-      }
+    const { keys, missing } = await resolveSaaviRecipients(toRaw);
+    if (missing.length) return sealFail(`No key discoverable for: ${missing.join(', ')} — not via WKD, not on keys.openpgp.org. Ask them for their public key and paste it instead.`);
+    const signer = signAs();
+    if (signer && !await ensureUnlocked(signer)) return sealFail('Not sealed — the signing key stayed locked.');
+    sealShow(signer ? 'Sealed and signed message' : 'Sealed message', await pgp.encryptText(text, keys, signer || undefined, { sign: !!signer }));
+  } catch (e2) {
+    sealFail(errMsg(e2));
+  }
+});
+
+$('seal-sign-btn').addEventListener('click', async () => {
+  sealReset();
+  const text = ($('seal-in') as HTMLTextAreaElement).value;
+  if (!text.trim()) return sealFail('There is nothing to sign yet.');
+  const signer = signAs();
+  if (!signer) return sealFail('Choose a key under "Sign as" first.');
+  try {
+    if (source === 'system') return sealShow('Clearsigned text', await gpg.clearsign(text, signer));
+    if (!await ensureUnlocked(signer)) return sealFail('Not signed — the key stayed locked.');
+    sealShow('Clearsigned text', await pgp.signText(text, signer));
+  } catch (e2) {
+    sealFail(errMsg(e2));
+  }
+});
+
+$('seal-verify').addEventListener('click', async () => {
+  sealReset();
+  const text = ($('seal-in') as HTMLTextAreaElement).value.trim();
+  if (!pgp.looksClearsigned(text)) return sealFail('Paste a clearsigned message (-----BEGIN PGP SIGNED MESSAGE-----) to verify.');
+  try {
+    if (source === 'system') {
+      const out = await gpg.decrypt(text);
+      return sealShow('Verified text', out.text, out.signatures);
     }
-    if (missing.length) return sealFail(`No key discoverable for: ${missing.join(', ')}. Their domain publishes no WKD entry — ask them for their public key and paste it instead.`);
-    sealShow('Sealed message', await pgp.encryptText(text, keys));
+    // Saavi store: candidates are own keys, a pasted key in To, and lookups for addresses in To.
+    const toRaw = recipientsRaw();
+    const cands: string[] = [];
+    for (const email of ringAddresses()) { const k = pgp.keysFor(email); if (k) cands.push(k.publicKey); }
+    if (toRaw) cands.push(...(await resolveSaaviRecipients(toRaw)).keys);
+    const v = await pgp.verifyText(text, cands);
+    const sig: gpg.SignatureInfo = {
+      status: v.status, fingerprint: v.signerFingerprint?.replace(/\s+/g, '') ?? '', key_id: '', uid: v.signerUid ?? '',
+      trust: v.status === 'good' ? 'full' : '',
+    };
+    sealShow('Verified text', v.text, [sig]);
+    if (v.status === 'unknown-key') $('seal-sig').append(el('span', 'hint', 'Put the signer\'s address (or their pasted key) in the To field to look their key up.'));
   } catch (e2) {
     sealFail(errMsg(e2));
   }
 });
 
 $('seal-dec').addEventListener('click', async () => {
-  sealErr.hidden = true;
-  $('seal-out-fld').hidden = true;
-  $('seal-sig').hidden = true;
+  sealReset();
   const text = ($('seal-in') as HTMLTextAreaElement).value.trim();
+  if (pgp.looksClearsigned(text)) return $('seal-verify').click();
   if (!pgp.looksEncrypted(text)) return sealFail('That is not an armored PGP message.');
   if (source === 'system') {
     try {
       const out = await gpg.decrypt(text);
       sealShow('Unsealed text', out.text, out.signatures);
-    } catch (e2) {
-      sealFail(errMsg(e2));
-    }
+    } catch (e2) { sealFail(errMsg(e2)); }
     return;
   }
   const attempt = async (): Promise<void> => {
@@ -605,15 +832,11 @@ $('seal-dec').addEventListener('click', async () => {
       const out = await pgp.decryptText(text);
       sealShow('Unsealed text', out.text);
     } catch (e) {
-      if (!(e instanceof Error && e.message === 'locked')) {
-        return sealFail(`Could not unseal: ${errMsg(e)}`);
-      }
+      if (!(e instanceof Error && e.message === 'locked')) return sealFail(`Could not unseal: ${errMsg(e)}`);
       for (const email of ringAddresses()) {
         const need = await pgp.neededKeyFor(email, text).catch(() => null);
         if (!need) continue;
-        if (need.unlocked) {
-          return sealFail(`This message names the key for ${email}, but that key cannot open it. The message may be damaged.`);
-        }
+        if (need.unlocked) return sealFail(`This message names the key for ${email}, but that key cannot open it. The message may be damaged.`);
         openModal('unlock', { email, fingerprint: need.fingerprint, then: () => void attempt() });
         return;
       }
@@ -627,6 +850,108 @@ $('seal-copy').addEventListener('click', () => {
   void navigator.clipboard.writeText(($('seal-out') as HTMLTextAreaElement).value);
 });
 
+// ---------- files (shell only) ----------
+const SEALED_EXT = /\.(gpg|pgp|asc)$/i;
+function fileStatus(msg: string, sigs?: gpg.SignatureInfo[]): void {
+  const out = $('file-out');
+  out.replaceChildren(el('span', undefined, msg));
+  for (const s of sigs ?? []) {
+    const cls = s.status === 'good' && (s.trust === 'ultimate' || s.trust === 'full') ? 'good' : s.status === 'bad' ? 'bad' : 'warn';
+    out.append(el('span', `sig sig-${cls}`, gpg.describeSignature(s)));
+  }
+  out.hidden = false;
+}
+
+async function sealFile(input: string): Promise<void> {
+  let toRaw = recipientsRaw();
+  if (!toRaw) {
+    const r = await ask({ title: 'Seal file — to whom?', message: baseName(input),
+      fields: [{ name: 'to', label: source === 'system' ? 'Addresses or fingerprints' : 'Addresses', placeholder: 'ada@example.org, grace@proton.me' }], ok: 'Seal' });
+    if (!r?.to.trim()) return;
+    toRaw = r.to.trim();
+    ($('seal-to') as HTMLInputElement).value = toRaw;
+  }
+  const output = await pickSave(`${input}.gpg`);
+  if (!output) return;
+  const signWith = signAs() || null;
+  if (source === 'system') {
+    const recipients = await resolveSystemRecipients(toRaw);
+    let r = await gpg.encryptFile(input, output, recipients, { signWith });
+    if (!r.armored && r.untrusted.length && !r.missing.length) {
+      if (!await untrustedOk(r.untrusted)) return fileStatus('Not sealed.');
+      r = await gpg.encryptFile(input, output, recipients, { signWith, trustAll: true });
+    }
+    if (!r.armored) return fileStatus(r.missing.length ? `No usable key for: ${r.missing.join(', ')}.` : 'gpg could not encrypt the file.');
+    return fileStatus(`Sealed${signWith ? ' and signed' : ''} → ${r.armored}`);
+  }
+  const { keys, missing } = await resolveSaaviRecipients(toRaw);
+  if (missing.length) return fileStatus(`No key discoverable for: ${missing.join(', ')}.`);
+  if (signWith && !await ensureUnlocked(signWith)) return fileStatus('Not sealed — the signing key stayed locked.');
+  const { readFile, writeFile } = await import('@tauri-apps/plugin-fs');
+  const data = await readFile(input);
+  const sealed = await pgp.encryptBytes(data, baseName(input), keys, signWith || undefined);
+  await writeFile(output, sealed);
+  fileStatus(`Sealed${signWith ? ' and signed' : ''} → ${output}`);
+}
+
+async function unsealFile(input: string): Promise<void> {
+  const suggested = SEALED_EXT.test(input) ? input.replace(SEALED_EXT, '') : `${input}.out`;
+  if (source === 'system') {
+    const output = await pickSave(suggested);
+    if (!output) return;
+    const r = await gpg.decryptFile(input, output);
+    return fileStatus(`Unsealed → ${r.text}`, r.signatures);
+  }
+  const { readFile, writeFile } = await import('@tauri-apps/plugin-fs');
+  const data = await readFile(input);
+  const attempt = async (): Promise<void> => {
+    try {
+      const out = await pgp.decryptBytes(data);
+      const output = await pickSave(out.filename ? dirName(input) + out.filename : suggested);
+      if (!output) return;
+      await writeFile(output, out.data);
+      fileStatus(`Unsealed → ${output}`);
+    } catch (e) {
+      if (!(e instanceof Error && e.message === 'locked')) return fileStatus(`Could not unseal: ${errMsg(e)}`);
+      for (const email of ringAddresses()) {
+        const need = await pgp.neededKeyForBytes(email, data).catch(() => null);
+        if (!need) continue;
+        if (need.unlocked) return fileStatus(`The key for ${email} cannot open this file; it may be damaged.`);
+        openModal('unlock', { email, fingerprint: need.fingerprint, then: () => void attempt() });
+        return;
+      }
+      fileStatus('None of the keys on this device fit this file.');
+    }
+  };
+  await attempt();
+}
+
+async function handleFile(path: string, mode?: 'seal' | 'unseal'): Promise<void> {
+  const m = mode ?? (SEALED_EXT.test(path) ? 'unseal' : 'seal');
+  try {
+    await (m === 'seal' ? sealFile(path) : unsealFile(path));
+  } catch (e) {
+    fileStatus(`${m === 'seal' ? 'Seal' : 'Unseal'} failed: ${errMsg(e)}`);
+  }
+}
+$('file-seal').addEventListener('click', async () => { const p = await pickFile('Choose a file to seal'); if (p) void handleFile(p, 'seal'); });
+$('file-unseal').addEventListener('click', async () => { const p = await pickFile('Choose a sealed file'); if (p) void handleFile(p, 'unseal'); });
+
+async function wireDragDrop(): Promise<void> {
+  if (!gpg.inShell()) return;
+  const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+  await getCurrentWebview().onDragDropEvent((e) => {
+    const zone = $('dropzone');
+    if (e.payload.type === 'enter' || e.payload.type === 'over') zone.classList.add('over');
+    else zone.classList.remove('over');
+    if (e.payload.type === 'drop') {
+      selectTab('seal');
+      for (const p of e.payload.paths) void handleFile(p);
+    }
+  });
+}
+
 // ---------- boot ----------
 void refreshKeys();
 void detectGpg();
+void wireDragDrop();

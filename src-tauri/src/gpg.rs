@@ -261,6 +261,20 @@ pub struct UserId {
 }
 
 #[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct SubKey {
+    pub fingerprint: String,
+    pub key_id: String,
+    pub algo: String,
+    pub created: Option<String>,
+    pub expires: Option<String>,
+    /// lower-case capability letters: e, s, a, c
+    pub caps: String,
+    pub revoked: bool,
+    pub expired: bool,
+    pub has_secret: bool,
+}
+
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
 pub struct SystemKey {
     pub fingerprint: String,
     pub key_id: String,
@@ -276,6 +290,7 @@ pub struct SystemKey {
     pub can_encrypt: bool,
     pub can_sign: bool,
     pub uids: Vec<UserId>,
+    pub subkeys: Vec<SubKey>,
 }
 
 fn split_uid(uid: &str) -> (String, String) {
@@ -290,7 +305,10 @@ fn split_uid(uid: &str) -> (String, String) {
 /// Parse `gpg --with-colons --with-fingerprint --with-secret --list-keys`.
 pub fn parse_keys(colons: &str) -> Vec<SystemKey> {
     let mut keys: Vec<SystemKey> = Vec::new();
-    let mut awaiting_primary_fpr = false;
+    // Which record the next `fpr` line belongs to.
+    #[derive(PartialEq)]
+    enum Want { None, Primary, Sub }
+    let mut want = Want::None;
     for line in colons.lines() {
         let f: Vec<&str> = line.split(':').collect();
         match f.first().copied() {
@@ -313,20 +331,42 @@ pub fn parse_keys(colons: &str) -> Vec<SystemKey> {
                     can_sign: caps.contains('S'),
                     ..Default::default()
                 });
-                awaiting_primary_fpr = true;
+                want = Want::Primary;
             }
-            Some("fpr") if awaiting_primary_fpr => {
+            Some("fpr") => {
+                let fpr = f.get(9).copied().unwrap_or("").to_string();
                 if let Some(k) = keys.last_mut() {
-                    k.fingerprint = f.get(9).copied().unwrap_or("").to_string();
+                    match want {
+                        Want::Primary => k.fingerprint = fpr,
+                        Want::Sub => {
+                            if let Some(sk) = k.subkeys.last_mut() {
+                                sk.fingerprint = fpr;
+                            }
+                        }
+                        Want::None => {}
+                    }
                 }
-                awaiting_primary_fpr = false;
+                want = Want::None;
             }
             Some("sub") | Some("ssb") => {
-                awaiting_primary_fpr = false;
+                want = Want::Sub;
                 if let Some(k) = keys.last_mut() {
-                    if f.get(14).copied().unwrap_or("").contains('+') {
+                    let secret = f.get(14).copied().unwrap_or("").contains('+');
+                    if secret {
                         k.has_secret = true;
                     }
+                    let validity = f.get(1).copied().unwrap_or("-");
+                    k.subkeys.push(SubKey {
+                        key_id: f.get(4).copied().unwrap_or("").to_string(),
+                        algo: algo_label(f.get(3).copied().unwrap_or(""), f.get(2).copied().unwrap_or(""), f.get(16).copied().unwrap_or("")),
+                        created: epoch_to_iso(f.get(5).copied().unwrap_or("")),
+                        expires: epoch_to_iso(f.get(6).copied().unwrap_or("")),
+                        caps: f.get(11).copied().unwrap_or("").to_lowercase(),
+                        revoked: validity.starts_with('r'),
+                        expired: validity.starts_with('e'),
+                        has_secret: secret,
+                        ..Default::default()
+                    });
                 }
             }
             Some("uid") => {
@@ -620,12 +660,13 @@ pub async fn gpg_decrypt(armored: String) -> Result<DecryptOutcome, String> {
     blocking(move || {
         let r = run(&["--decrypt"], armored.as_bytes())?;
         let signatures = parse_signatures(&r.status);
-        let encrypted_to = r
+        let encrypted_to: Vec<String> = r
             .status
             .iter()
             .filter_map(|s| s.strip_prefix("ENC_TO ").and_then(|x| x.split(' ').next()).map(str::to_string))
             .collect();
-        let okay = r.status.iter().any(|s| s == "DECRYPTION_OKAY");
+        let signed_only = encrypted_to.is_empty() && !signatures.is_empty();
+        let okay = r.status.iter().any(|s| s == "DECRYPTION_OKAY") || signed_only;
         if !okay {
             let msg = if r.status.iter().any(|s| s.starts_with("NO_SECKEY")) {
                 "None of the secret keys in the GnuPG keyring can open this message.".to_string()
@@ -639,6 +680,248 @@ pub async fn gpg_decrypt(armored: String) -> Result<DecryptOutcome, String> {
             return Err(msg);
         }
         Ok(DecryptOutcome { text: String::from_utf8_lossy(&r.stdout).into_owned(), signatures, encrypted_to })
+    })
+    .await
+}
+
+/// Clearsign text with one of the user's secret keys (pinentry asks).
+#[tauri::command]
+pub async fn gpg_clearsign(text: String, sign_with: String) -> Result<String, String> {
+    blocking(move || {
+        let fpr = check_fpr(&sign_with)?;
+        let r = run(&["--armor", "--clearsign", "--local-user", &fpr], text.as_bytes())?;
+        if !r.status_ok || r.stdout.is_empty() {
+            return Err(human(&r, "gpg did not sign (cancelled?)."));
+        }
+        Ok(String::from_utf8_lossy(&r.stdout).into_owned())
+    })
+    .await
+}
+
+// ------------------------------------------------------ key management
+
+fn check_expire(s: &str) -> Result<String, String> {
+    let t = s.trim();
+    let ok = t == "0"
+        || (t.len() >= 2 && t[..t.len() - 1].bytes().all(|b| b.is_ascii_digit()) && "dwmy".contains(&t[t.len() - 1..]))
+        || (t.len() == 10 && t.bytes().enumerate().all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() }));
+    if ok { Ok(t.to_string()) } else { Err("Expiry must be 0 (never), a span like 2y / 18m / 90d, or a date YYYY-MM-DD.".into()) }
+}
+
+/// `--quick-set-expire` on the primary key, then on every subkey.
+#[tauri::command]
+pub async fn gpg_set_expire(fingerprint: String, expire: String) -> Result<(), String> {
+    blocking(move || {
+        let fpr = check_fpr(&fingerprint)?;
+        let exp = check_expire(&expire)?;
+        let r = run(&["--quick-set-expire", "--", &fpr, &exp], b"")?;
+        if !r.status_ok {
+            return Err(human(&r, "gpg did not change the expiry (cancelled?)."));
+        }
+        // Subkeys too ('*' = all; gpg >= 2.1.22). Best effort: the primary
+        // is what gpg reports as the key's expiry.
+        let _ = run(&["--quick-set-expire", "--", &fpr, &exp, "*"], b"");
+        Ok(())
+    })
+    .await
+}
+
+/// Change the passphrase. pinentry asks for the old one and the new one.
+#[tauri::command]
+pub async fn gpg_passwd(fingerprint: String) -> Result<(), String> {
+    blocking(move || {
+        let fpr = check_fpr(&fingerprint)?;
+        let r = run(&["--passwd", "--", &fpr], b"")?;
+        if !r.status_ok {
+            return Err(human(&r, "gpg did not change the passphrase (cancelled?)."));
+        }
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn gpg_add_uid(fingerprint: String, name: String, email: String) -> Result<(), String> {
+    blocking(move || {
+        let fpr = check_fpr(&fingerprint)?;
+        let email = email.trim().to_lowercase();
+        if !is_address(&email) {
+            return Err("That does not look like an email address.".into());
+        }
+        let name = name.trim().replace(['<', '>', '(', ')'], "");
+        let uid = if name.is_empty() { email } else { format!("{name} <{email}>") };
+        let r = run(&["--quick-add-uid", "--", &fpr, &uid], b"")?;
+        if !r.status_ok {
+            return Err(human(&r, "gpg did not add the user ID (cancelled?)."));
+        }
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn gpg_revoke_uid(fingerprint: String, uid: String) -> Result<(), String> {
+    blocking(move || {
+        let fpr = check_fpr(&fingerprint)?;
+        let uid = uid.trim();
+        if uid.is_empty() || uid.starts_with('-') || uid.contains('\n') {
+            return Err("Not a user ID.".into());
+        }
+        let r = run(&["--quick-revoke-uid", "--", &fpr, uid], b"")?;
+        if !r.status_ok {
+            return Err(human(&r, "gpg did not revoke the user ID (cancelled?)."));
+        }
+        Ok(())
+    })
+    .await
+}
+
+/// Owner trust, gpg's scale: 2 unknown, 3 never, 4 marginal, 5 full, 6 ultimate.
+#[tauri::command]
+pub async fn gpg_set_ownertrust(fingerprint: String, level: u8) -> Result<(), String> {
+    blocking(move || {
+        let fpr = check_fpr(&fingerprint)?;
+        if !(2..=6).contains(&level) {
+            return Err("Trust level out of range.".into());
+        }
+        let line = format!("{fpr}:{level}:\n");
+        let r = run(&["--import-ownertrust"], line.as_bytes())?;
+        if !r.status_ok {
+            return Err(human(&r, "gpg did not update the trust database."));
+        }
+        Ok(())
+    })
+    .await
+}
+
+/// Certify a key with one of ours (`--quick-sign-key`; `local` = non-exportable).
+#[tauri::command]
+pub async fn gpg_sign_key(fingerprint: String, signer: String, local: bool) -> Result<(), String> {
+    blocking(move || {
+        let fpr = check_fpr(&fingerprint)?;
+        let me = check_fpr(&signer)?;
+        let cmd = if local { "--quick-lsign-key" } else { "--quick-sign-key" };
+        let r = run(&["--local-user", &me, cmd, "--", &fpr], b"")?;
+        if !r.status_ok {
+            return Err(human(&r, "gpg did not certify the key (cancelled?)."));
+        }
+        Ok(())
+    })
+    .await
+}
+
+/// Fetch a key by fingerprint from keys.openpgp.org (verified-email keyserver).
+#[tauri::command]
+pub async fn gpg_recv_key(fingerprint: String) -> Result<ImportOutcome, String> {
+    blocking(move || {
+        let fpr = check_fpr(&fingerprint)?;
+        let r = run(&["--keyserver", "hkps://keys.openpgp.org", "--recv-keys", "--", &fpr], b"")?;
+        let mut out = ImportOutcome::default();
+        for s in &r.status {
+            if let Some(rest) = s.strip_prefix("IMPORT_OK ") {
+                if let Some(f) = rest.split(' ').nth(1) {
+                    out.fingerprints.push(f.to_string());
+                }
+            }
+        }
+        if out.fingerprints.is_empty() {
+            return Err(human(&r, "The keyserver has no key with that fingerprint."));
+        }
+        out.imported = 1;
+        Ok(out)
+    })
+    .await
+}
+
+// ------------------------------------------------------------------ files
+
+fn check_in_path(p: &str) -> Result<PathBuf, String> {
+    let pb = PathBuf::from(p);
+    if !pb.is_absolute() || !pb.is_file() {
+        return Err("That file does not exist.".into());
+    }
+    Ok(pb)
+}
+
+fn check_out_path(p: &str) -> Result<PathBuf, String> {
+    let pb = PathBuf::from(p);
+    if !pb.is_absolute() || pb.parent().map(|d| !d.is_dir()).unwrap_or(true) {
+        return Err("Cannot write there.".into());
+    }
+    Ok(pb)
+}
+
+#[tauri::command]
+pub async fn gpg_encrypt_file(
+    input: String,
+    output: String,
+    recipients: Vec<String>,
+    sign_with: Option<String>,
+    trust_all: bool,
+    armor: bool,
+) -> Result<EncryptOutcome, String> {
+    blocking(move || {
+        let inp = check_in_path(&input)?;
+        let outp = check_out_path(&output)?;
+        let mut args: Vec<String> = vec!["--yes".into(), "--output".into(), outp.to_string_lossy().into_owned(), "--encrypt".into()];
+        if armor {
+            args.push("--armor".into());
+        }
+        if let Some(fpr) = sign_with.as_deref().filter(|s| !s.is_empty()) {
+            args.push("--sign".into());
+            args.push("--local-user".into());
+            args.push(check_fpr(fpr)?);
+        }
+        if trust_all {
+            args.push("--trust-model".into());
+            args.push("always".into());
+        }
+        for r in &recipients {
+            args.push("--recipient".into());
+            args.push(check_recipient(r)?);
+        }
+        args.push("--".into());
+        args.push(inp.to_string_lossy().into_owned());
+        let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+        let r = run(&argv, b"")?;
+        let mut out = EncryptOutcome::default();
+        for s in &r.status {
+            if let Some(rest) = s.strip_prefix("INV_RECP ") {
+                let mut it = rest.splitn(2, ' ');
+                let reason = it.next().unwrap_or("");
+                let who = it.next().unwrap_or("").to_string();
+                if reason == "10" { out.untrusted.push(who) } else { out.missing.push(who) }
+            }
+        }
+        if r.status_ok && r.status.iter().any(|s| s == "END_ENCRYPTION") {
+            out.armored = outp.to_string_lossy().into_owned();
+            return Ok(out);
+        }
+        if out.untrusted.is_empty() && out.missing.is_empty() {
+            return Err(human(&r, "gpg could not encrypt the file."));
+        }
+        Ok(out)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn gpg_decrypt_file(input: String, output: String) -> Result<DecryptOutcome, String> {
+    blocking(move || {
+        let inp = check_in_path(&input)?;
+        let outp = check_out_path(&output)?;
+        let r = run(&["--yes", "--output", &outp.to_string_lossy(), "--decrypt", "--", &inp.to_string_lossy()], b"")?;
+        let signatures = parse_signatures(&r.status);
+        let encrypted_to = r.status.iter().filter_map(|s| s.strip_prefix("ENC_TO ").and_then(|x| x.split(' ').next()).map(str::to_string)).collect();
+        let okay = r.status.iter().any(|s| s == "DECRYPTION_OKAY");
+        if !okay {
+            return Err(if r.status.iter().any(|s| s.starts_with("NO_SECKEY")) {
+                "None of the secret keys in the GnuPG keyring can open this file.".to_string()
+            } else {
+                human(&r, "gpg could not decrypt the file.")
+            });
+        }
+        Ok(DecryptOutcome { text: outp.to_string_lossy().into_owned(), signatures, encrypted_to })
     })
     .await
 }
@@ -710,7 +993,7 @@ pub:u:255:22:1A2B3C4D5E6F7A8B:1700000000:0::u:::scESC:::::ed25519:::0:
 fpr:::::::::ABCDEF0123456789ABCDEF0123456789ABCDEF01:
 uid:u::::1700000000::HASH::Ada Lovelace <ada@example.org>::::::::::0:
 uid:u::::1700000001::HASH2::Ada \\x3a Work <ada@work.example>::::::::::0:
-sub:u:255:18:0011223344556677:1700000000::::::e:::+:::cv25519::
+sub:u:255:18:0011223344556677:1700000000::::::e:::+::cv25519::
 fpr:::::::::1111111111111111111111111111111111111111:
 pub:f:4096:1:FFEEDDCCBBAA9988:1600000000:1900000000::f:::scESC::::::::0:
 fpr:::::::::FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:
@@ -743,6 +1026,12 @@ uid:r::::1500000000::HASH4::Old Key::::::::::0:
         assert_eq!(grace.algo, "rsa4096");
         assert_eq!(grace.validity, "full");
         assert_eq!(grace.expires.as_deref(), Some("2030-03-17"));
+
+        assert_eq!(ada.subkeys.len(), 1);
+        assert_eq!(ada.subkeys[0].fingerprint, "1111111111111111111111111111111111111111");
+        assert_eq!(ada.subkeys[0].algo, "cv25519");
+        assert_eq!(ada.subkeys[0].caps, "e");
+        assert!(ada.subkeys[0].has_secret);
 
         let old = &keys[2];
         assert!(old.revoked);
@@ -790,6 +1079,16 @@ uid:r::::1500000000::HASH4::Old Key::::::::::0:
         assert!(check_recipient("ada@example.org --trust-model always").is_err());
         assert!(check_recipient("<ada@example.org>").is_err());
         assert!(check_recipient("nobody").is_err());
+    }
+
+    #[test]
+    fn validates_expiry() {
+        for ok in ["0", "2y", "18m", "90d", "3w", "2030-01-31"] {
+            assert!(check_expire(ok).is_ok(), "{ok}");
+        }
+        for bad in ["", "never", "-1y", "2030/01/31", "--yes", "1x", "y"] {
+            assert!(check_expire(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
@@ -852,6 +1151,26 @@ uid:r::::1500000000::HASH4::Old Key::::::::::0:
         t[mid] = if t[mid] == b'A' { b'B' } else { b'A' };
         let bad = gpg(&["--decrypt"], &t);
         assert!(!String::from_utf8_lossy(&bad.stderr).contains("DECRYPTION_OKAY"));
+
+        // Clearsign, then "decrypt" the clearsigned text: verifies and yields the text.
+        let cs = gpg(&["--armor", "--clearsign", "--local-user", &fpr], b"signed only");
+        assert!(cs.status.success());
+        let ver = gpg(&["--decrypt"], &cs.stdout);
+        let vst: Vec<String> = String::from_utf8_lossy(&ver.stderr).lines().filter_map(|l| l.strip_prefix("[GNUPG:] ").map(str::to_string)).collect();
+        assert!(!vst.iter().any(|s| s.starts_with("ENC_TO")));
+        assert_eq!(parse_signatures(&vst)[0].status, "good");
+        assert!(String::from_utf8_lossy(&ver.stdout).contains("signed only"));
+
+        // Key management round trip.
+        assert!(gpg(&["--quick-set-expire", "--", &fpr, "2y"], b"").status.success());
+        assert!(gpg(&["--quick-add-uid", "--", &fpr, "Test Two <t2@example.org>"], b"").status.success());
+        let ot = format!("{fpr}:5:\n");
+        assert!(gpg(&["--import-ownertrust"], ot.as_bytes()).status.success());
+        let list = gpg(&["--with-colons", "--fixed-list-mode", "--with-fingerprint", "--with-secret", "--list-keys"], b"");
+        let keys = parse_keys(&String::from_utf8_lossy(&list.stdout));
+        assert!(keys[0].expires.is_some());
+        assert_eq!(keys[0].uids.len(), 2);
+        assert_eq!(keys[0].owner_trust, "full");
 
         let _ = gpg(&["--no-autostart", "--version"], b"");
         let _ = Command::new(bin.with_file_name(exe("gpgconf"))).env("GNUPGHOME", &h).args(["--kill", "all"]).output();

@@ -32,6 +32,7 @@ export interface SystemKey {
   can_encrypt: boolean;
   can_sign: boolean;
   uids: UserId[];
+  subkeys: SubKey[];
 }
 
 export interface SignatureInfo {
@@ -122,4 +123,26 @@ export function describeSignature(s: SignatureInfo): string {
     default:
       return `Signature could not be checked (${s.key_id}).`;
   }
+}
+
+// ---- key management / signing / keyserver / files
+export const clearsign = (text: string, signWith: string): Promise<string> => call('gpg_clearsign', { text, signWith });
+export const setExpire = (fingerprint: string, expire: string): Promise<void> => call('gpg_set_expire', { fingerprint, expire });
+export const passwd = (fingerprint: string): Promise<void> => call('gpg_passwd', { fingerprint });
+export const addUid = (fingerprint: string, name: string, email: string): Promise<void> => call('gpg_add_uid', { fingerprint, name, email });
+export const revokeUid = (fingerprint: string, uid: string): Promise<void> => call('gpg_revoke_uid', { fingerprint, uid });
+/** 2 unknown · 3 never · 4 marginal · 5 full · 6 ultimate */
+export const setOwnertrust = (fingerprint: string, level: number): Promise<void> => call('gpg_set_ownertrust', { fingerprint, level });
+export const signKey = (fingerprint: string, signer: string, local: boolean): Promise<void> => call('gpg_sign_key', { fingerprint, signer, local });
+export const recvKey = (fingerprint: string): Promise<ImportOutcome> => call('gpg_recv_key', { fingerprint });
+export const encryptFile = (
+  input: string, output: string, recipients: string[],
+  opts: { signWith?: string | null; trustAll?: boolean; armor?: boolean } = {},
+): Promise<EncryptOutcome> =>
+  call('gpg_encrypt_file', { input, output, recipients, signWith: opts.signWith ?? null, trustAll: opts.trustAll ?? false, armor: opts.armor ?? false });
+export const decryptFile = (input: string, output: string): Promise<DecryptOutcome> => call('gpg_decrypt_file', { input, output });
+
+export interface SubKey {
+  fingerprint: string; key_id: string; algo: string; created: string | null; expires: string | null;
+  caps: string; revoked: boolean; expired: boolean; has_secret: boolean;
 }

@@ -31,6 +31,7 @@
         <button id="act-import" class="tool"><span class="ico" data-ico="import"></span><span>Import</span></button>
         <button id="act-backup" class="tool" disabled><span class="ico" data-ico="save"></span><span>Backup</span></button>
         <button id="act-delete" class="tool" disabled><span class="ico" data-ico="trash"></span><span>Delete</span></button>
+        <button id="act-details" class="tool" disabled title="Double-click a row also opens details"><span class="ico" data-ico="info"></span><span>Details</span></button>
         <button id="act-refresh" class="tool"><span class="ico" data-ico="refresh"></span><span>Refresh</span></button>
         <div id="ring-src-wrap" class="ring-src">
           <label class="ring-src-pick"><span>Keyring</span>
@@ -55,7 +56,7 @@
         <label class="fld"><span id="seal-to-label">To (addresses — keys found via WKD — or paste a public key)</span>
           <input id="seal-to" type="text" placeholder="ada@example.org, grace@proton.me" />
         </label>
-        <label class="fld" id="seal-sign-fld" hidden><span>Sign as (gpg asks for the passphrase)</span>
+        <label class="fld" id="seal-sign-fld"><span>Sign as</span>
           <select id="seal-sign"><option value="">Don't sign</option></select>
         </label>
         <label class="fld"><span>Text</span>
@@ -64,6 +65,8 @@
         <div class="seal-acts">
           <button id="seal-enc" class="primary" title="⌘↵ / Ctrl+Enter">Seal</button>
           <button id="seal-dec">Unseal</button>
+          <button id="seal-sign-btn" title="Clearsign: readable text with a signature">Sign</button>
+          <button id="seal-verify" title="Check a clearsigned message">Verify</button>
           <button id="seal-copy" hidden>Copy result</button>
         </div>
         <p id="seal-err" class="error" role="alert" hidden></p>
@@ -71,6 +74,13 @@
         <label class="fld" id="seal-out-fld" hidden><span id="seal-out-label">Result</span>
           <textarea id="seal-out" rows="9" readonly></textarea>
         </label>
+        <div id="files" class="files" hidden>
+          <div id="dropzone" class="dropzone">
+            <span>Drop files anywhere to seal them (or unseal <code>.gpg</code> / <code>.pgp</code> / <code>.asc</code>)</span>
+            <span class="file-acts"><button id="file-seal">Seal a file…</button><button id="file-unseal">Unseal a file…</button></span>
+          </div>
+          <p id="file-out" class="sigs" role="status" hidden></p>
+        </div>
       </div>
     </section>
   </div>
@@ -99,9 +109,16 @@
           <textarea id="m-import" rows="5" spellcheck="false"></textarea>
         </label>
         <label class="fld" id="f-email2"><span>Email address it belongs to</span><input id="m-email2" type="email" /></label>
+        <label class="fld" id="f-fpr" hidden><span>…or fetch from keys.openpgp.org by fingerprint</span><input id="m-fpr" type="text" spellcheck="false" placeholder="40 hex characters" /></label>
       </div>
-      <label class="fld" id="f-pass"><span>Passphrase</span><input id="m-pass" type="password" autocomplete="new-password" /></label>
+      <label class="fld" id="f-pass"><span>Passphrase</span>
+        <span class="pass-row"><input id="m-pass" type="password" autocomplete="new-password" /><button type="button" id="m-pass-show" class="mini" title="Show / hide">👁</button></span>
+      </label>
       <label class="fld" id="f-pass2"><span>Passphrase, again</span><input id="m-pass2" type="password" /></label>
+      <div id="f-suggest" class="suggest" hidden>
+        <button type="button" id="m-suggest" class="mini">Suggest a strong passphrase</button>
+        <span class="hint">Six random words — keep it in a password manager (KeePassXC, Bitwarden).</span>
+      </div>
       <p id="m-strength" class="hint"></p>
       <div id="f-done" hidden>
         <p class="hint">Your new key is ready and unlocked for this session. Save the
@@ -117,6 +134,16 @@
         <button type="submit" id="m-go" class="primary">Continue</button>
       </div>
     </form>
+  </div>
+
+  <!-- key details -->
+  <div id="details" class="veil" hidden>
+    <div class="card details-card" role="dialog" aria-labelledby="details-title">
+      <h2 id="details-title">Key</h2>
+      <div id="details-body" class="details-body"></div>
+      <div id="details-acts" class="details-acts"></div>
+      <div class="card-acts"><button type="button" id="details-close">Close</button></div>
+    </div>
   </div>
 
   <script type="module" src="/src/main.ts"></script>
