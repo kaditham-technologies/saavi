@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-08-20
 
 - **Key management** (system keyring): a Details panel (double-click or
   the Details button) with fingerprint, algorithm, expiry, validity,
