@@ -101,5 +101,9 @@ OpenPGP.js (LGPL-3.0-or-later), are listed in
 - Downloads: [GitHub releases](https://github.com/kaditham-technologies/saavi/releases)
   (Linux `.deb`/`.AppImage`, macOS `.dmg`, Windows `.msi`/`.exe` — all
   GPG-signed, with `SHA256SUMS.asc` and `latest.json`), mirrored
-  on the Kaditham site. Every release carries a clearsigned verification
+  at [kaditham.ie/saavi](https://kaditham.ie/saavi/). Every release carries a clearsigned verification
   note; the signing-key fingerprint is published on the website too.
+
+---
+
+MIT licensed. © Kaditham Holdings Pte Ltd · built by Kaditham Technologies Limited, Dublin.
