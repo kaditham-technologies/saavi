@@ -1,13 +1,26 @@
-// Saavi's shell is deliberately thin: a window around the frontend.
-// Logic lives in the frontend; this grows only for OS integration
-// (keychain, file dialogs) — see docs/ROADMAP.md.
+// Saavi's shell is deliberately thin: a window around the frontend, plus
+// one piece of OS integration — the system GnuPG keyring (gpg.rs), which
+// delegates every operation to the user's own gpg binary.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod gpg;
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
+        .invoke_handler(tauri::generate_handler![
+            gpg::gpg_info,
+            gpg::gpg_list_keys,
+            gpg::gpg_export_public,
+            gpg::gpg_export_secret,
+            gpg::gpg_import,
+            gpg::gpg_encrypt,
+            gpg::gpg_decrypt,
+            gpg::gpg_delete_public,
+            gpg::gpg_generate,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Saavi");
 }

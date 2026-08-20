@@ -14,6 +14,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-http = "2"
+serde = { version = "1", features = ["derive"] }
 
 [profile.release]
 lto = true

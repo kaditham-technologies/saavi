@@ -16,10 +16,11 @@ should get a CHANGELOG line.
 - [ ] **Signing is silent.** `encryptText` signs with whichever key is
       unlocked without telling the user. Show "signed as <address>" on the
       sealed output, with a way to seal unsigned.
-- [ ] **Signature verification on unseal.** `decryptText` never verifies
-      (no sender key is passed) and the UI shows nothing either way. Verify
-      against pasted keys / WKD and display signed-by + fingerprint, or an
-      explicit "unsigned".
+- [ ] **Signature verification on unseal (Saavi store).** Done for the
+      system keyring (gpg's verdict is shown). For the Saavi store,
+      `decryptText` never verifies (no sender key is passed) and the UI
+      shows nothing; verify against pasted keys / WKD and display
+      signed-by + fingerprint, or an explicit "unsigned".
 - [ ] **Pin GitHub Actions to commit SHAs** (`tauri-action@v0`,
       `checkout@v4`, `setup-node@v4`, `rust-toolchain@stable`,
       `audit-check@v2`). Dependabot now tracks them, so pins stay fresh.
@@ -43,6 +44,12 @@ should get a CHANGELOG line.
       Say so, or handle all of them.
 - [ ] **Hidden-recipient messages** (wildcard key ID) never match in
       `neededKeyFor`; they read as "no key fits" instead of prompting.
+
+- [ ] **System keyring, next slice:** edit expiry / add UID / set owner
+      trust, smartcard status (`--card-status`), pick the git-signing key.
+- [ ] **System keyring on macOS without a GUI pinentry** (Homebrew gpg +
+      no pinentry-mac): gpg fails to ask for the passphrase. Detect and
+      point at `pinentry-mac`.
 
 ## Project hygiene
 

@@ -35,12 +35,36 @@ old one is retired but kept) is the intended lifecycle.
 - Loss: there is no escrow and no recovery. The backup file plus the
   passphrase are the only path back.
 
+## System GnuPG mode
+
+When the user switches the keyring source to System GnuPG, Saavi is a
+front end to the installed `gpg` binary (`src-tauri/src/gpg.rs`):
+
+- Fixed argument sets per operation; no shell, no user-controlled flags.
+  Fingerprints must be hex and addresses must be a single `user@host` with
+  no whitespace or brackets before they become arguments; all key and
+  message material goes over stdin.
+- Passphrases: gpg-agent + the user's pinentry. Saavi never prompts for,
+  receives, or caches a system-key passphrase. (`--pinentry-mode loopback`
+  is used only in the Rust test suite, against a throwaway `GNUPGHOME`.)
+- Trust: gpg's trust model is respected. `--trust-model always` is sent
+  only after the user confirms a specific untrusted recipient for one
+  operation. Unseal shows `GOODSIG`/`BADSIG`/`ERRSIG` and `TRUST_*` verbatim.
+- WKD in this mode is gpg's own `--auto-key-locate local,wkd`, so fetched
+  keys land in the GnuPG keyring exactly as they would from the command line.
+- The binary is found on `PATH` and the standard install directories for
+  each OS; the path and version in use are shown in the toolbar. There is
+  no environment-variable override (that would be a hijack vector).
+- Deleting secret keys is refused; public-key deletion asks first.
+
 ## Crypto inventory
 
 - OpenPGP operations: [OpenPGP.js](https://github.com/openpgpjs/openpgpjs)
   (Curve25519 default, RSA-4096 for legacy interop). No other crypto
   implementations are accepted into the codebase.
-- Randomness: the platform CSPRNG via WebCrypto.
+- System GnuPG mode: the user's installed GnuPG does everything; Saavi
+  parses its output.
+- Randomness: the platform CSPRNG via WebCrypto (Saavi store).
 - Post-quantum: tracked in [docs/ROADMAP.md](docs/ROADMAP.md) — hybrid ML-KEM
   composites will be offered when OpenPGP.js ships the
   draft-ietf-openpgp-pqc algorithms, at which point key rotation inside

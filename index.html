@@ -32,9 +32,18 @@
         <button id="act-backup" class="tool" disabled><span class="ico" data-ico="save"></span><span>Backup</span></button>
         <button id="act-delete" class="tool" disabled><span class="ico" data-ico="trash"></span><span>Delete</span></button>
         <button id="act-refresh" class="tool"><span class="ico" data-ico="refresh"></span><span>Refresh</span></button>
+        <div id="ring-src-wrap" class="ring-src">
+          <label class="ring-src-pick"><span>Keyring</span>
+            <select id="ring-src" aria-label="Keyring source">
+              <option value="saavi">Saavi store</option>
+              <option value="system" disabled>System GnuPG</option>
+            </select>
+          </label>
+          <span id="ring-note" class="ring-note" aria-live="polite"></span>
+        </div>
       </div>
       <div class="cols">
-        <span></span><span>Address</span><span>Key ID</span><span>Created</span><span class="c-end">Status</span>
+        <span></span><span>Address</span><span>Key ID</span><span>Created</span><span class="c-end" id="col-status">Status</span>
       </div>
       <div id="rows" class="rows" role="listbox" aria-label="Keys"></div>
       <div id="status" class="status">…</div>
@@ -43,8 +52,11 @@
     <!-- −d : the sealer -->
     <section id="view-seal" class="view" hidden>
       <div class="seal-grid">
-        <label class="fld"><span>To (addresses — keys found via WKD — or paste a public key)</span>
+        <label class="fld"><span id="seal-to-label">To (addresses — keys found via WKD — or paste a public key)</span>
           <input id="seal-to" type="text" placeholder="ada@example.org, grace@proton.me" />
+        </label>
+        <label class="fld" id="seal-sign-fld" hidden><span>Sign as (gpg asks for the passphrase)</span>
+          <select id="seal-sign"><option value="">Don't sign</option></select>
         </label>
         <label class="fld"><span>Text</span>
           <textarea id="seal-in" rows="9" placeholder="Write or paste — plain text to seal, or an armored PGP message to unseal."></textarea>
@@ -55,6 +67,7 @@
           <button id="seal-copy" hidden>Copy result</button>
         </div>
         <p id="seal-err" class="error" role="alert" hidden></p>
+        <p id="seal-sig" class="sigs" role="status" hidden></p>
         <label class="fld" id="seal-out-fld" hidden><span id="seal-out-label">Result</span>
           <textarea id="seal-out" rows="9" readonly></textarea>
         </label>
@@ -82,10 +95,10 @@
         </label>
       </div>
       <div id="f-imp" hidden>
-        <label class="fld"><span>Armored private key or Saavi backup file</span>
+        <label class="fld"><span id="m-import-label">Armored private key or Saavi backup file</span>
           <textarea id="m-import" rows="5" spellcheck="false"></textarea>
         </label>
-        <label class="fld"><span>Email address it belongs to</span><input id="m-email2" type="email" /></label>
+        <label class="fld" id="f-email2"><span>Email address it belongs to</span><input id="m-email2" type="email" /></label>
       </div>
       <label class="fld" id="f-pass"><span>Passphrase</span><input id="m-pass" type="password" autocomplete="new-password" /></label>
       <label class="fld" id="f-pass2"><span>Passphrase, again</span><input id="m-pass2" type="password" /></label>

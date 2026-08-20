@@ -6,9 +6,11 @@ Ordered by intent, not promise.
    platform keychain (GNOME Keyring / macOS Keychain / Windows
    Credential Manager) via the Tauri keyring plugin.
 2. **Files** — drag-and-drop seal/unseal for files, not just text.
-3. **System GnuPG keyring** — manage the real `~/.gnupg` (git signing,
-   pass, mutt) rather than only Saavi's own store. The true KGpg
-   succession. Likely via sequoia/gpgme in the Rust shell.
+3. ~~**System GnuPG keyring**~~ — shipped: the real `~/.gnupg` as a second
+   keyring source, by delegating to the user's `gpg` binary (not gpgme or
+   Sequoia: no second OpenPGP implementation, no reading gpg's private
+   store). Remaining: key editing (expiry, UIDs, trust signatures),
+   smartcard status, and a "which key signs my git commits" view.
 4. **Kaditham Mail pairing** — sign in to publish keys to the directory
    and WKD, and sync identities.
 5. **Post-quantum hybrids** — ML-KEM/ML-DSA composite keys once

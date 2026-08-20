@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **System GnuPG keyring** (roadmap #3). A keyring-source switch in the
+  toolbar — Saavi store (default, unchanged) or the real `~/.gnupg`. In
+  system mode every operation is the user's own `gpg`: list (with
+  validity, secret-key presence, revoked/expired state), generate
+  (ed25519 + cv25519 or RSA-4096, passphrase via pinentry), import,
+  export public / backup secret, delete public keys, seal to keyring or
+  WKD-located recipients with optional signing, unseal with gpg's
+  signature verdict shown (good / bad / unknown key, plus trust level).
+  Untrusted recipient keys are refused until confirmed per operation.
+  Requires GnuPG; the app works exactly as before without it.
 - macOS (universal `.dmg`) and Windows (`.msi`, `-setup.exe`) builds join
   Linux in every release, each GPG-signed and listed in `latest.json`.
   Release notes carry first-launch instructions for the OS warnings

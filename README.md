@@ -28,10 +28,29 @@ Mail if you have it.
   addresses and public keys sit beside them in the clear. Unlocked keys
   exist only in process memory, per session.
 - **Only public keys ever travel** — the app's sole network use is
-  fetching other people's public keys over WKD. Nothing is uploaded.
+  fetching other people's public keys over WKD (in system mode, gpg's own
+  `--auto-key-locate wkd`). Nothing is uploaded.
+- **System GnuPG mode adds no new key handling.** Saavi runs `gpg`; it
+  does not read `~/.gnupg`, hold secret keys, or see passphrases.
 - **What Saavi cannot protect against:** a compromised operating system,
   or someone with your passphrase and your device. There is no key escrow
   and no recovery; the backup file and passphrase are the whole story.
+
+## Two keyrings
+
+| Source | Where keys live | Needs |
+|---|---|---|
+| **Saavi store** (default) | Saavi's own passphrase-locked store, via OpenPGP.js | nothing — works on any machine |
+| **System GnuPG** | your real `~/.gnupg`: the keys git, pass, mutt and Kleopatra use | GnuPG installed (Gpg4win, GPG Suite/Homebrew, or your distro's package) |
+
+In system mode Saavi is a face for **your own `gpg`**: every operation is
+the gpg binary with a fixed argument set; listing is `--with-colons`,
+outcomes come from `--status-fd`. gpg-agent and your pinentry handle
+passphrases (and smartcards), so Saavi never sees them. Trust is gpg's web
+of trust: an untrusted recipient key is refused until you say "this once",
+and every unsealed message shows gpg's signature verdict — who signed,
+fingerprint, and how far you trust that key. Saavi will not delete secret
+keys from the GnuPG keyring.
 
 ## The two faces (KGpg heritage)
 
