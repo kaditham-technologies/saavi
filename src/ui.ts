@@ -24,7 +24,7 @@ export interface AskOptions {
   code?: string;
 }
 
-let open: HTMLElement | null = null;
+let open: { el: HTMLElement; cancel: () => void } | null = null;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const n = document.createElement(tag);
@@ -36,7 +36,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 /** Ask a question. Resolves to the field values, or null when dismissed. */
 export function ask(o: AskOptions): Promise<Record<string, string> | null> {
   return new Promise((resolve) => {
-    open?.remove();
+    // Only one question at a time; a superseded one answers "dismissed".
+    open?.cancel();
     const veil = el('div', 'veil ask-veil');
     const card = el('form', 'card ask-card');
     veil.append(card);
@@ -74,7 +75,7 @@ export function ask(o: AskOptions): Promise<Record<string, string> | null> {
     card.append(acts);
     const done = (v: Record<string, string> | null): void => {
       veil.remove();
-      if (open === veil) open = null;
+      if (open?.el === veil) open = null;
       document.removeEventListener('keydown', onKey);
       resolve(v);
     };
@@ -88,7 +89,7 @@ export function ask(o: AskOptions): Promise<Record<string, string> | null> {
     });
     document.addEventListener('keydown', onKey, true);
     document.body.append(veil);
-    open = veil;
+    open = { el: veil, cancel: () => done(null) };
     const first = card.querySelector<HTMLElement>('input, select') ?? ok;
     first.focus();
   });

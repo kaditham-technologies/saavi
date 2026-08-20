@@ -313,7 +313,7 @@ $('act-backup').addEventListener('click', async () => {
     const armored = sel.hasSecret ? await gpg.exportSecret(sel.fpr) : await gpg.exportPublic(sel.fpr);
     const base = (sel.email || sel.fpr.slice(-16)).replace(/[^a-z0-9.@-]/gi, '_');
     const path = await saveTextFile(`${base}${sel.hasSecret ? '-secret' : ''}.asc`, armored);
-    if (path !== null) status(path ? `${sel.hasSecret ? 'Secret key (passphrase-protected by gpg)' : 'Public key'} saved to ${path}` : 'Key downloaded.');
+    if (path !== null) status(path ? `${sel.hasSecret ? 'Secret key (as gpg exports it — protected only if the key has a passphrase)' : 'Public key'} saved to ${path}` : 'Key downloaded.');
   } catch (e) {
     status(`NOT saved: ${errMsg(e)}`);
   }
@@ -442,7 +442,7 @@ async function openDetails(): Promise<void> {
         });
         if (!r) return;
         await gpg.signKey(k.fingerprint, r.signer, r.scope === 'local');
-        status('Key certified (gpg asked for your passphrase).');
+        status('Key certified.');
         await refreshKeys(); await openDetails();
       });
     }
@@ -455,7 +455,7 @@ async function openDetails(): Promise<void> {
         });
         if (!r) return;
         await gpg.setExpire(k.fingerprint, r.expire);
-        status('Expiry updated on the key and its subkeys.');
+        status('Expiry updated.');
         await refreshKeys(); await openDetails();
       });
       action('Change passphrase…', async () => {
@@ -490,7 +490,7 @@ $('details-close').addEventListener('click', () => { $('details').hidden = true;
 // ---------- the modal (generate / import / unlock) ----------
 type ModalMode = 'generate' | 'import' | 'unlock';
 let modalMode: ModalMode = 'generate';
-let unlockFor: { email: string; fingerprint?: string; then: () => void } | null = null;
+let unlockFor: { email: string; fingerprint?: string; then: () => void; cancel?: () => void } | null = null;
 let doneFor: { kind: Source; ref: string } | null = null;
 
 function setSrc(src: 'generate' | 'import'): void {
@@ -513,7 +513,7 @@ $('modal-src').addEventListener('click', (e) => {
   if (b?.dataset.src) setSrc(b.dataset.src as 'generate' | 'import');
 });
 
-function openModal(mode: ModalMode, unlock?: { email: string; fingerprint?: string; then: () => void }): void {
+function openModal(mode: ModalMode, unlock?: { email: string; fingerprint?: string; then: () => void; cancel?: () => void }): void {
   modalMode = mode;
   unlockFor = mode === 'unlock' ? unlock ?? null : null;
   doneFor = null;
@@ -548,6 +548,7 @@ function openModal(mode: ModalMode, unlock?: { email: string; fingerprint?: stri
 
 function closeModal(): void {
   $('modal').hidden = true;
+  if (unlockFor?.cancel) { const c = unlockFor.cancel; unlockFor = null; c(); }
   if (doneFor) { doneFor = null; void refreshKeys(); }
 }
 $('m-cancel').addEventListener('click', closeModal);
@@ -717,10 +718,7 @@ async function resolveSaaviRecipients(toRaw: string): Promise<{ keys: string[]; 
 function ensureUnlocked(email: string): Promise<boolean> {
   if (pgp.isUnlocked(email)) return Promise.resolve(true);
   return new Promise((resolve) => {
-    openModal('unlock', { email, then: () => resolve(true) });
-    const onClose = (): void => { if ($('modal').hidden) { resolve(false); obs.disconnect(); } };
-    const obs = new MutationObserver(onClose);
-    obs.observe($('modal'), { attributes: true, attributeFilter: ['hidden'] });
+    openModal('unlock', { email, then: () => resolve(true), cancel: () => resolve(false) });
   });
 }
 
@@ -804,9 +802,11 @@ $('seal-verify').addEventListener('click', async () => {
     for (const email of ringAddresses()) { const k = pgp.keysFor(email); if (k) cands.push(k.publicKey); }
     if (toRaw) cands.push(...(await resolveSaaviRecipients(toRaw)).keys);
     const v = await pgp.verifyText(text, cands);
+    // A key found for an address is not a trusted key — say "verify the fingerprint".
+    const own = ringAddresses().some((e) => pgp.keysFor(e) && (v.signerUid ?? '').toLowerCase().includes(e));
     const sig: gpg.SignatureInfo = {
       status: v.status, fingerprint: v.signerFingerprint?.replace(/\s+/g, '') ?? '', key_id: '', uid: v.signerUid ?? '',
-      trust: v.status === 'good' ? 'full' : '',
+      trust: v.status === 'good' && own ? 'ultimate' : '',
     };
     sealShow('Verified text', v.text, [sig]);
     if (v.status === 'unknown-key') $('seal-sig').append(el('span', 'hint', 'Put the signer\'s address (or their pasted key) in the To field to look their key up.'));
@@ -862,52 +862,68 @@ function fileStatus(msg: string, sigs?: gpg.SignatureInfo[]): void {
   out.hidden = false;
 }
 
-async function sealFile(input: string): Promise<void> {
-  let toRaw = recipientsRaw();
-  if (!toRaw) {
-    const r = await ask({ title: 'Seal file — to whom?', message: baseName(input),
-      fields: [{ name: 'to', label: source === 'system' ? 'Addresses or fingerprints' : 'Addresses', placeholder: 'ada@example.org, grace@proton.me' }], ok: 'Seal' });
-    if (!r?.to.trim()) return;
-    toRaw = r.to.trim();
-    ($('seal-to') as HTMLInputElement).value = toRaw;
-  }
-  const output = await pickSave(`${input}.gpg`);
-  if (!output) return;
+/** A filename from inside a sealed file is sender-controlled: basename only,
+ *  no control characters, never a path. */
+function safeName(name: string | null, fallback: string): string {
+  const base = (name ?? '').split(/[\\/]/).pop()?.replace(/[\u0000-\u001f\u007f]/g, '').trim() ?? '';
+  return base && base !== '.' && base !== '..' ? base : fallback;
+}
+
+async function askRecipients(forWhat: string): Promise<string | null> {
+  const have = recipientsRaw();
+  if (have) return have;
+  const r = await ask({ title: 'Seal — to whom?', message: forWhat,
+    fields: [{ name: 'to', label: source === 'system' ? 'Addresses or fingerprints' : 'Addresses', placeholder: 'ada@example.org, grace@proton.me' }], ok: 'Seal' });
+  if (!r?.to.trim()) return null;
+  ($('seal-to') as HTMLInputElement).value = r.to.trim();
+  return r.to.trim();
+}
+
+/** input === null → the shell (system) / a dialog (Saavi) picks the file. */
+async function sealFile(input: string | null): Promise<void> {
+  const toRaw = await askRecipients(input ? baseName(input) : 'Choose the file next.');
+  if (!toRaw) return;
   const signWith = signAs() || null;
   if (source === 'system') {
+    // Paths are chosen by native dialogs on the Rust side; the webview never names the output.
     const recipients = await resolveSystemRecipients(toRaw);
-    let r = await gpg.encryptFile(input, output, recipients, { signWith });
-    if (!r.armored && r.untrusted.length && !r.missing.length) {
+    let r = await gpg.encryptFile(input, recipients, { signWith });
+    if (!r.output && r.untrusted.length && !r.missing.length) {
       if (!await untrustedOk(r.untrusted)) return fileStatus('Not sealed.');
-      r = await gpg.encryptFile(input, output, recipients, { signWith, trustAll: true });
+      r = await gpg.encryptFile(r.input, recipients, { signWith, trustAll: true });
     }
-    if (!r.armored) return fileStatus(r.missing.length ? `No usable key for: ${r.missing.join(', ')}.` : 'gpg could not encrypt the file.');
-    return fileStatus(`Sealed${signWith ? ' and signed' : ''} → ${r.armored}`);
+    if (!r.output) return fileStatus(r.missing.length ? `No usable key for: ${r.missing.join(', ')}.` : r.input ? 'Not sealed.' : '');
+    return fileStatus(`Sealed${signWith ? ' and signed' : ''} → ${r.output}`);
   }
+  const path = input ?? await pickFile('Choose a file to seal');
+  if (!path) return;
   const { keys, missing } = await resolveSaaviRecipients(toRaw);
   if (missing.length) return fileStatus(`No key discoverable for: ${missing.join(', ')}.`);
   if (signWith && !await ensureUnlocked(signWith)) return fileStatus('Not sealed — the signing key stayed locked.');
+  const output = await pickSave(`${path}.gpg`);
+  if (!output) return;
   const { readFile, writeFile } = await import('@tauri-apps/plugin-fs');
-  const data = await readFile(input);
-  const sealed = await pgp.encryptBytes(data, baseName(input), keys, signWith || undefined);
+  const data = await readFile(path);
+  const sealed = await pgp.encryptBytes(data, baseName(path), keys, signWith || undefined);
   await writeFile(output, sealed);
   fileStatus(`Sealed${signWith ? ' and signed' : ''} → ${output}`);
 }
 
-async function unsealFile(input: string): Promise<void> {
-  const suggested = SEALED_EXT.test(input) ? input.replace(SEALED_EXT, '') : `${input}.out`;
+async function unsealFile(input: string | null): Promise<void> {
   if (source === 'system') {
-    const output = await pickSave(suggested);
-    if (!output) return;
-    const r = await gpg.decryptFile(input, output);
-    return fileStatus(`Unsealed → ${r.text}`, r.signatures);
+    const r = await gpg.decryptFile(input);
+    if (!r.output) return fileStatus(r.input ? 'Not unsealed.' : '');
+    return fileStatus(`Unsealed → ${r.output}`, r.signatures);
   }
+  const path = input ?? await pickFile('Choose a sealed file');
+  if (!path) return;
+  const suggested = SEALED_EXT.test(baseName(path)) ? baseName(path).replace(SEALED_EXT, '') : `${baseName(path)}.out`;
   const { readFile, writeFile } = await import('@tauri-apps/plugin-fs');
-  const data = await readFile(input);
+  const data = await readFile(path);
   const attempt = async (): Promise<void> => {
     try {
       const out = await pgp.decryptBytes(data);
-      const output = await pickSave(out.filename ? dirName(input) + out.filename : suggested);
+      const output = await pickSave(dirName(path) + safeName(out.filename, suggested));
       if (!output) return;
       await writeFile(output, out.data);
       fileStatus(`Unsealed → ${output}`);
@@ -926,16 +942,21 @@ async function unsealFile(input: string): Promise<void> {
   await attempt();
 }
 
-async function handleFile(path: string, mode?: 'seal' | 'unseal'): Promise<void> {
-  const m = mode ?? (SEALED_EXT.test(path) ? 'unseal' : 'seal');
-  try {
-    await (m === 'seal' ? sealFile(path) : unsealFile(path));
-  } catch (e) {
-    fileStatus(`${m === 'seal' ? 'Seal' : 'Unseal'} failed: ${errMsg(e)}`);
-  }
+// One file flow at a time: dialogs and the unlock modal are singletons.
+let fileQueue: Promise<void> = Promise.resolve();
+function handleFile(path: string | null, mode?: 'seal' | 'unseal'): Promise<void> {
+  const m = mode ?? (path && SEALED_EXT.test(path) ? 'unseal' : 'seal');
+  fileQueue = fileQueue.then(async () => {
+    try {
+      await (m === 'seal' ? sealFile(path) : unsealFile(path));
+    } catch (e) {
+      fileStatus(`${m === 'seal' ? 'Seal' : 'Unseal'} failed: ${errMsg(e)}`);
+    }
+  });
+  return fileQueue;
 }
-$('file-seal').addEventListener('click', async () => { const p = await pickFile('Choose a file to seal'); if (p) void handleFile(p, 'seal'); });
-$('file-unseal').addEventListener('click', async () => { const p = await pickFile('Choose a sealed file'); if (p) void handleFile(p, 'unseal'); });
+$('file-seal').addEventListener('click', () => void handleFile(null, 'seal'));
+$('file-unseal').addEventListener('click', () => void handleFile(null, 'unseal'));
 
 async function wireDragDrop(): Promise<void> {
   if (!gpg.inShell()) return;

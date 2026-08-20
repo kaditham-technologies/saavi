@@ -71,7 +71,9 @@ fn exe(name: &str) -> String {
 
 fn gpg_binary() -> Option<&'static Path> {
     static BIN: OnceLock<Option<PathBuf>> = OnceLock::new();
-    BIN.get_or_init(|| candidates().into_iter().find(|p| p.is_file()))
+    // Relative PATH entries ("" or ".") would resolve against the cwd:
+    // binary planting when launched from a writable directory. Absolute only.
+    BIN.get_or_init(|| candidates().into_iter().filter(|p| p.is_absolute()).find(|p| p.is_file()))
         .as_deref()
 }
 
@@ -114,14 +116,19 @@ fn run(args: &[&str], stdin: &[u8]) -> Result<Run, String> {
         .args(args)
         .spawn()
         .map_err(|e| format!("Could not start gpg: {e}"))?;
-    {
-        let mut si = child.stdin.take().expect("piped stdin");
+    // Feed stdin from its own thread while we drain stdout/stderr: gpg
+    // streams output as it reads, and a filled pipe in either direction
+    // would otherwise deadlock both processes on large inputs.
+    let mut si = child.stdin.take().expect("piped stdin");
+    let input = stdin.to_vec();
+    let feeder = std::thread::spawn(move || {
         // A closed pipe (gpg bailed early) is reported through status/exit.
-        let _ = si.write_all(stdin);
-    }
+        let _ = si.write_all(&input);
+    });
     let out = child
         .wait_with_output()
         .map_err(|e| format!("gpg did not finish: {e}"))?;
+    let _ = feeder.join();
     let mut status = Vec::new();
     let mut messages = Vec::new();
     for line in String::from_utf8_lossy(&out.stderr).lines() {
@@ -175,7 +182,9 @@ fn check_recipient(s: &str) -> Result<String, String> {
         return Ok(compact.to_uppercase());
     }
     if is_address(t) {
-        return Ok(t.to_lowercase());
+        // Angle brackets select gpg's exact-mailbox match; a bare string is
+        // a substring search that `ada@example.org.attacker.net` would win.
+        return Ok(format!("<{}>", t.to_lowercase()));
     }
     Err(format!("'{t}' is neither an address nor a fingerprint."))
 }
@@ -189,8 +198,9 @@ fn unescape(field: &str) -> String {
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'\\' && i + 3 < b.len() && b[i + 1] == b'x' {
-            if let Ok(v) = u8::from_str_radix(&field[i + 2..i + 4], 16) {
-                out.push(v);
+            let hex = |c: u8| (c as char).to_digit(16);
+            if let (Some(h), Some(l)) = (hex(b[i + 2]), hex(b[i + 3])) {
+                out.push((h * 16 + l) as u8);
                 i += 4;
                 continue;
             }
@@ -451,7 +461,14 @@ pub fn parse_signatures(status: &[String]) -> Vec<SignatureInfo> {
             }
             t if t.starts_with("TRUST_") => {
                 if let Some(last) = sigs.last_mut() {
-                    last.trust = t.trim_start_matches("TRUST_").to_lowercase();
+                    last.trust = match t {
+                        "TRUST_ULTIMATE" => "ultimate",
+                        "TRUST_FULLY" => "full",
+                        "TRUST_MARGINAL" => "marginal",
+                        "TRUST_NEVER" => "never",
+                        _ => "undefined",
+                    }
+                    .into();
                 }
             }
             _ => {}
@@ -572,7 +589,7 @@ pub async fn gpg_import(armored: String) -> Result<ImportOutcome, String> {
                     // IMPORT_RES count no_user_id imported imported_rsa unchanged ... sec_read sec_imported sec_dups ...
                     out.imported = f.get(3).and_then(|x| x.parse().ok()).unwrap_or(0);
                     out.unchanged = f.get(5).and_then(|x| x.parse().ok()).unwrap_or(0);
-                    out.secret_imported = f.get(10).and_then(|x| x.parse().ok()).unwrap_or(0);
+                    out.secret_imported = f.get(11).and_then(|x| x.parse().ok()).unwrap_or(0);
                 }
                 _ => {}
             }
@@ -718,9 +735,12 @@ pub async fn gpg_set_expire(fingerprint: String, expire: String) -> Result<(), S
         if !r.status_ok {
             return Err(human(&r, "gpg did not change the expiry (cancelled?)."));
         }
-        // Subkeys too ('*' = all; gpg >= 2.1.22). Best effort: the primary
-        // is what gpg reports as the key's expiry.
-        let _ = run(&["--quick-set-expire", "--", &fpr, &exp, "*"], b"");
+        // Subkeys too ('*' = all; gpg >= 2.1.22). Report honestly if that
+        // part did not happen.
+        let r2 = run(&["--quick-set-expire", "--", &fpr, &exp, "*"], b"")?;
+        if !r2.status_ok {
+            return Err(format!("Primary key expiry set; subkeys unchanged ({}).", human(&r2, "gpg refused")));
+        }
         Ok(())
     })
     .await
@@ -818,55 +838,90 @@ pub async fn gpg_recv_key(fingerprint: String) -> Result<ImportOutcome, String> 
         let r = run(&["--keyserver", "hkps://keys.openpgp.org", "--recv-keys", "--", &fpr], b"")?;
         let mut out = ImportOutcome::default();
         for s in &r.status {
-            if let Some(rest) = s.strip_prefix("IMPORT_OK ") {
-                if let Some(f) = rest.split(' ').nth(1) {
-                    out.fingerprints.push(f.to_string());
+            let f: Vec<&str> = s.split(' ').collect();
+            match f.first().copied() {
+                Some("IMPORT_OK") => {
+                    if let Some(fpr) = f.get(2) {
+                        out.fingerprints.push(fpr.to_string());
+                    }
                 }
+                Some("IMPORT_RES") => {
+                    out.imported = f.get(3).and_then(|x| x.parse().ok()).unwrap_or(0);
+                    out.unchanged = f.get(5).and_then(|x| x.parse().ok()).unwrap_or(0);
+                }
+                _ => {}
             }
         }
         if out.fingerprints.is_empty() {
             return Err(human(&r, "The keyserver has no key with that fingerprint."));
         }
-        out.imported = 1;
         Ok(out)
     })
     .await
 }
 
 // ------------------------------------------------------------------ files
+//
+// The output file is always chosen through a native save dialog opened
+// HERE, on the Rust side — the webview never names a file gpg writes to.
+// The input may come from the webview (a dropped file's path) or, when
+// absent, from a native open dialog, also opened here.
 
-fn check_in_path(p: &str) -> Result<PathBuf, String> {
-    let pb = PathBuf::from(p);
-    if !pb.is_absolute() || !pb.is_file() {
-        return Err("That file does not exist.".into());
+use tauri_plugin_dialog::DialogExt;
+
+fn pick_input(app: &tauri::AppHandle, given: Option<String>, title: &str) -> Result<Option<PathBuf>, String> {
+    if let Some(p) = given.filter(|p| !p.is_empty()) {
+        let pb = PathBuf::from(&p);
+        if !pb.is_absolute() || !pb.is_file() {
+            return Err("That file does not exist.".into());
+        }
+        return Ok(Some(pb));
     }
-    Ok(pb)
+    Ok(app
+        .dialog()
+        .file()
+        .set_title(title)
+        .blocking_pick_file()
+        .and_then(|f| f.into_path().ok()))
 }
 
-fn check_out_path(p: &str) -> Result<PathBuf, String> {
-    let pb = PathBuf::from(p);
-    if !pb.is_absolute() || pb.parent().map(|d| !d.is_dir()).unwrap_or(true) {
-        return Err("Cannot write there.".into());
+fn pick_output(app: &tauri::AppHandle, suggested: &Path) -> Option<PathBuf> {
+    let mut d = app.dialog().file();
+    if let Some(dir) = suggested.parent() {
+        d = d.set_directory(dir);
     }
-    Ok(pb)
+    if let Some(name) = suggested.file_name() {
+        d = d.set_file_name(name.to_string_lossy());
+    }
+    d.blocking_save_file().and_then(|f| f.into_path().ok())
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct FileOutcome {
+    /// Empty when the user cancelled a dialog.
+    pub output: String,
+    pub input: String,
+    pub signatures: Vec<SignatureInfo>,
+    pub untrusted: Vec<String>,
+    pub missing: Vec<String>,
 }
 
 #[tauri::command]
 pub async fn gpg_encrypt_file(
-    input: String,
-    output: String,
+    app: tauri::AppHandle,
+    input: Option<String>,
     recipients: Vec<String>,
     sign_with: Option<String>,
     trust_all: bool,
-    armor: bool,
-) -> Result<EncryptOutcome, String> {
+) -> Result<FileOutcome, String> {
     blocking(move || {
-        let inp = check_in_path(&input)?;
-        let outp = check_out_path(&output)?;
+        let Some(inp) = pick_input(&app, input, "Choose a file to seal")? else { return Ok(FileOutcome::default()) };
+        let mut suggested = inp.as_os_str().to_owned();
+        suggested.push(".gpg");
+        let Some(outp) = pick_output(&app, Path::new(&suggested)) else {
+            return Ok(FileOutcome { input: inp.to_string_lossy().into_owned(), ..Default::default() });
+        };
         let mut args: Vec<String> = vec!["--yes".into(), "--output".into(), outp.to_string_lossy().into_owned(), "--encrypt".into()];
-        if armor {
-            args.push("--armor".into());
-        }
         if let Some(fpr) = sign_with.as_deref().filter(|s| !s.is_empty()) {
             args.push("--sign".into());
             args.push("--local-user".into());
@@ -884,7 +939,7 @@ pub async fn gpg_encrypt_file(
         args.push(inp.to_string_lossy().into_owned());
         let argv: Vec<&str> = args.iter().map(String::as_str).collect();
         let r = run(&argv, b"")?;
-        let mut out = EncryptOutcome::default();
+        let mut out = FileOutcome { input: inp.to_string_lossy().into_owned(), ..Default::default() };
         for s in &r.status {
             if let Some(rest) = s.strip_prefix("INV_RECP ") {
                 let mut it = rest.splitn(2, ' ');
@@ -894,7 +949,7 @@ pub async fn gpg_encrypt_file(
             }
         }
         if r.status_ok && r.status.iter().any(|s| s == "END_ENCRYPTION") {
-            out.armored = outp.to_string_lossy().into_owned();
+            out.output = outp.to_string_lossy().into_owned();
             return Ok(out);
         }
         if out.untrusted.is_empty() && out.missing.is_empty() {
@@ -906,13 +961,19 @@ pub async fn gpg_encrypt_file(
 }
 
 #[tauri::command]
-pub async fn gpg_decrypt_file(input: String, output: String) -> Result<DecryptOutcome, String> {
+pub async fn gpg_decrypt_file(app: tauri::AppHandle, input: Option<String>) -> Result<FileOutcome, String> {
     blocking(move || {
-        let inp = check_in_path(&input)?;
-        let outp = check_out_path(&output)?;
+        let Some(inp) = pick_input(&app, input, "Choose a sealed file")? else { return Ok(FileOutcome::default()) };
+        let name = inp.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let stripped = ["gpg", "pgp", "asc"]
+            .iter()
+            .find_map(|ext| name.strip_suffix(&format!(".{ext}")).map(str::to_string))
+            .unwrap_or_else(|| format!("{name}.out"));
+        let Some(outp) = pick_output(&app, &inp.with_file_name(stripped)) else {
+            return Ok(FileOutcome { input: inp.to_string_lossy().into_owned(), ..Default::default() });
+        };
         let r = run(&["--yes", "--output", &outp.to_string_lossy(), "--decrypt", "--", &inp.to_string_lossy()], b"")?;
         let signatures = parse_signatures(&r.status);
-        let encrypted_to = r.status.iter().filter_map(|s| s.strip_prefix("ENC_TO ").and_then(|x| x.split(' ').next()).map(str::to_string)).collect();
         let okay = r.status.iter().any(|s| s == "DECRYPTION_OKAY");
         if !okay {
             return Err(if r.status.iter().any(|s| s.starts_with("NO_SECKEY")) {
@@ -921,7 +982,7 @@ pub async fn gpg_decrypt_file(input: String, output: String) -> Result<DecryptOu
                 human(&r, "gpg could not decrypt the file.")
             });
         }
-        Ok(DecryptOutcome { text: outp.to_string_lossy().into_owned(), signatures, encrypted_to })
+        Ok(FileOutcome { output: outp.to_string_lossy().into_owned(), input: inp.to_string_lossy().into_owned(), signatures, ..Default::default() })
     })
     .await
 }
@@ -1048,12 +1109,16 @@ uid:r::::1500000000::HASH4::Old Key::::::::::0:
             "GOODSIG 1A2B3C4D5E6F7A8B Ada Lovelace <ada@example.org>",
             "VALIDSIG 1111111111111111111111111111111111111111 2024-01-01 1704067200 0 4 0 22 8 00 ABCDEF0123456789ABCDEF0123456789ABCDEF01",
             "TRUST_ULTIMATE 0 pgp",
+            "GOODSIG FFEEDDCCBBAA9988 Grace Hopper <grace@proton.me>",
+            "VALIDSIG FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF 2024-01-01 1704067200 0 4 0 1 8 00 FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+            "TRUST_FULLY 0 pgp",
         ]
         .iter()
         .map(|s| s.to_string())
         .collect();
         let sigs = parse_signatures(&st);
-        assert_eq!(sigs.len(), 1);
+        assert_eq!(sigs.len(), 2);
+        assert_eq!(sigs[1].trust, "full", "TRUST_FULLY maps to full");
         assert_eq!(sigs[0].status, "good");
         assert_eq!(sigs[0].fingerprint, "ABCDEF0123456789ABCDEF0123456789ABCDEF01", "primary fingerprint, not subkey");
         assert_eq!(sigs[0].trust, "ultimate");
@@ -1074,11 +1139,20 @@ uid:r::::1500000000::HASH4::Old Key::::::::::0:
         assert!(check_fpr("1A2B3C4D5E6F7A8B").is_ok());
         assert!(check_fpr("--homedir").is_err());
         assert!(check_fpr("ZZZZZZZZZZZZZZZZ").is_err());
-        assert_eq!(check_recipient("Ada@Example.org").unwrap(), "ada@example.org");
+        assert_eq!(check_recipient("Ada@Example.org").unwrap(), "<ada@example.org>");
         assert!(check_recipient("-r x@y.z").is_err());
         assert!(check_recipient("ada@example.org --trust-model always").is_err());
         assert!(check_recipient("<ada@example.org>").is_err());
         assert!(check_recipient("nobody").is_err());
+    }
+
+    #[test]
+    fn unescape_is_byte_safe() {
+        assert_eq!(unescape("a\\x3ab"), "a:b");
+        assert_eq!(unescape("caf\\xc3\\xa9"), "café");
+        // \x followed by a multibyte char must not panic or slice mid-codepoint.
+        assert_eq!(unescape("\\xAé"), "\\xAé");
+        assert_eq!(unescape("trailing\\x"), "trailing\\x");
     }
 
     #[test]

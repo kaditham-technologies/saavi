@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Security (review follow-ups): recipients are passed to gpg in exact-
+  mailbox form (`<addr>`) — a bare address is a substring match that a
+  look-alike key could win; a sender-chosen filename inside a sealed file
+  is reduced to its basename before it becomes a save suggestion (it could
+  point at `../../.ssh/authorized_keys`); gpg file operations now open the
+  save dialog on the Rust side, so the webview never names an output
+  file; relative PATH entries are ignored when locating gpg.
+- Fixed: `TRUST_FULLY` signatures were shown as "not yet trusted"; large
+  inputs could deadlock the gpg pipe; a hostile user ID could crash the
+  keyring listing; dropping several files at once ran tangled flows;
+  `IMPORT_RES` secret-key count was off by one; an expired or revoked
+  signer was reported as tampering.
 - **Key management** (system keyring): a Details panel (double-click or
   the Details button) with fingerprint, algorithm, expiry, validity,
   owner trust, user IDs and subkeys — and actions: set expiry, change

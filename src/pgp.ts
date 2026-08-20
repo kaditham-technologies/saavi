@@ -391,8 +391,7 @@ export async function signText(text: string, signerEmail: string): Promise<strin
 
 export interface VerifyResult {
   text: string;
-  /** 'good' | 'bad' | 'unknown-key' */
-  status: 'good' | 'bad' | 'unknown-key';
+  status: 'good' | 'bad' | 'unknown-key' | 'expired' | 'revoked';
   signerFingerprint: string | null;
   signerUid: string | null;
 }
@@ -413,8 +412,10 @@ export async function verifyText(armored: string, armoredPublicKeys: string[]): 
     try {
       await sig.verified;
       return { text, status: 'good', signerFingerprint: fpr, signerUid: uid };
-    } catch {
-      return { text, status: 'bad', signerFingerprint: fpr, signerUid: uid };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const status = /revoked/i.test(msg) ? 'revoked' : /expired/i.test(msg) ? 'expired' : 'bad';
+      return { text, status, signerFingerprint: fpr, signerUid: uid };
     }
   }
   return { text, status: 'unknown-key', signerFingerprint: null, signerUid: null };

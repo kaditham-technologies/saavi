@@ -135,12 +135,20 @@ export const revokeUid = (fingerprint: string, uid: string): Promise<void> => ca
 export const setOwnertrust = (fingerprint: string, level: number): Promise<void> => call('gpg_set_ownertrust', { fingerprint, level });
 export const signKey = (fingerprint: string, signer: string, local: boolean): Promise<void> => call('gpg_sign_key', { fingerprint, signer, local });
 export const recvKey = (fingerprint: string): Promise<ImportOutcome> => call('gpg_recv_key', { fingerprint });
+export interface FileOutcome {
+  /** '' when a dialog was cancelled. */
+  output: string;
+  input: string;
+  signatures: SignatureInfo[];
+  untrusted: string[];
+  missing: string[];
+}
+/** The shell opens the dialogs itself (input when `input` is null; output always). */
 export const encryptFile = (
-  input: string, output: string, recipients: string[],
-  opts: { signWith?: string | null; trustAll?: boolean; armor?: boolean } = {},
-): Promise<EncryptOutcome> =>
-  call('gpg_encrypt_file', { input, output, recipients, signWith: opts.signWith ?? null, trustAll: opts.trustAll ?? false, armor: opts.armor ?? false });
-export const decryptFile = (input: string, output: string): Promise<DecryptOutcome> => call('gpg_decrypt_file', { input, output });
+  input: string | null, recipients: string[], opts: { signWith?: string | null; trustAll?: boolean } = {},
+): Promise<FileOutcome> =>
+  call('gpg_encrypt_file', { input, recipients, signWith: opts.signWith ?? null, trustAll: opts.trustAll ?? false });
+export const decryptFile = (input: string | null): Promise<FileOutcome> => call('gpg_decrypt_file', { input });
 
 export interface SubKey {
   fingerprint: string; key_id: string; algo: string; created: string | null; expires: string | null;
