@@ -10,7 +10,7 @@ jobs:
     outputs:
       body: ${{ steps.notes.outputs.body }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: notes
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
@@ -47,9 +47,9 @@ jobs:
             args: --bundles msi,nsis
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
@@ -61,7 +61,7 @@ jobs:
             libayatana-appindicator3-dev librsvg2-dev
       - run: npm ci
       - run: npm test
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -77,7 +77,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Sign every asset, write SHA256SUMS + latest.json, publish
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}

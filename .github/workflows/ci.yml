@@ -9,18 +9,18 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run build
       - run: npm test
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm audit --audit-level=high
       - uses: dtolnay/rust-toolchain@stable
@@ -37,9 +37,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
       - name: webview deps
         run: |
@@ -49,7 +49,7 @@ jobs:
       - run: npm ci
       - run: cargo install tauri-cli --version '^2' --locked
       - run: cargo tauri build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: saavi-linux
           path: |
@@ -73,16 +73,16 @@ jobs:
               src-tauri/target/release/bundle/nsis/*.exe
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - run: npm ci
       - run: cargo install tauri-cli --version '^2' --locked
       - run: cargo tauri build ${{ matrix.args }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: saavi-${{ matrix.os }}
           path: ${{ matrix.path }}

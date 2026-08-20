@@ -45,8 +45,8 @@ Mail if you have it.
 Frontend (any machine with Docker, no local Node needed):
 
 ```sh
-docker run --rm -u $(id -u) -v "$PWD":/app -w /app node:20-alpine npm ci
-docker run --rm -u $(id -u) -v "$PWD":/app -w /app node:20-alpine npm run build
+docker run --rm -u $(id -u) -v "$PWD":/app -w /app node:22-alpine npm ci
+docker run --rm -u $(id -u) -v "$PWD":/app -w /app node:22-alpine npm run build
 ```
 
 Desktop shell (needs Rust + platform webview headers; on Debian/Ubuntu:

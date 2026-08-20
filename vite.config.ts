@@ -9,7 +9,7 @@ export default defineConfig({
       output: {
         // Keep OpenPGP.js (LGPL) as its own replaceable file rather than
         // inlining it into Saavi's MIT code — see THIRD-PARTY-NOTICES.md.
-        manualChunks: { openpgp: ['openpgp'] },
+        manualChunks: (id) => (id.includes('/node_modules/openpgp/') ? 'openpgp' : undefined),
       },
     },
   },

@@ -8,6 +8,8 @@
   (no Apple/Microsoft code-signing yet).
 - The webview can now write only to the file chosen in the save dialog —
   the static `$HOME/**` scope is gone (closes the last audit item).
+- Toolchain: TypeScript 7, Vite 8 (rolldown), Vitest 4; Node 22 is now
+  the floor. GitHub Actions bumped to current majors.
 - Desktop polish: native widgets follow the active theme, thin
   scrollbars, no rubber-banding, visible keyboard focus, ⌘/Ctrl+1 / 2 to
   switch modes and ⌘/Ctrl+Enter to seal. Icon re-rendered from the SVG
