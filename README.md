@@ -106,4 +106,4 @@ OpenPGP.js (LGPL-3.0-or-later), are listed in
 
 ---
 
-MIT licensed. © Kaditham Holdings Pte Ltd · built by Kaditham Technologies Limited, Dublin.
+MIT licensed. © Kaditham Holdings Pte Ltd · built by Kaditham Technologies Limited.
