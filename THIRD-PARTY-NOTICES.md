@@ -15,6 +15,12 @@ as its own chunk (`dist/assets/openpgp-*.js`, see `vite.config.ts`) rather
 than being inlined into Saavi's code, so a user can replace it with their
 own build of the library. Saavi does not modify OpenPGP.js.
 
+## Data
+
+| Component | License | Role |
+|---|---|---|
+| [EFF Large Wordlist](https://www.eff.org/dice) (`src/wordlist.ts`) | CC BY 3.0, Electronic Frontier Foundation | passphrase suggestions |
+
 ## Desktop shell (Rust)
 
 [Tauri](https://tauri.app) 2 and its plugins, MIT OR Apache-2.0, plus their

@@ -9,6 +9,10 @@ people's keys, so we ask for rigour over speed.
   only** — PRs adding bespoke or additional crypto will be declined.
 - `src/wkd.ts` — Web Key Directory lookup (hashing + fetch, no crypto).
 - `src/gpg.ts` — typed wrappers for the system-GnuPG commands; no logic.
+- `src/vks.ts` — keys.openpgp.org lookup (fallback after WKD).
+- `src/passphrase.ts` + `src/wordlist.ts` — diceware suggestion (EFF list).
+- `src/ui.ts` — in-app dialogs (`ask`, `confirmBox`, `notice`); never
+  use `window.confirm`/`prompt`, they misbehave in webviews.
 - `src/main.ts` — the app: the −k key table and the −d sealer, branching
   on the keyring source (Saavi store / System GnuPG).
 - `src/style.css` — the design system; tokens at the top, sections below.

@@ -13,14 +13,14 @@ should get a CHANGELOG line.
 - [ ] **Auto-lock.** `pgp.clearSession()` exists but is never called.
       Unlocked keys live in memory until the app exits. Add an idle timeout
       (e.g. 15 min) and a manual "Lock all" toolbar action.
-- [ ] **Signing is silent.** `encryptText` signs with whichever key is
-      unlocked without telling the user. Show "signed as <address>" on the
-      sealed output, with a way to seal unsigned.
-- [ ] **Signature verification on unseal (Saavi store).** Done for the
-      system keyring (gpg's verdict is shown). For the Saavi store,
-      `decryptText` never verifies (no sender key is passed) and the UI
-      shows nothing; verify against pasted keys / WKD and display
-      signed-by + fingerprint, or an explicit "unsigned".
+- [x] **Signing is silent.** A "Sign as" choice in the sealer; sealing
+      signs only when a key is chosen, and the result label says so.
+- [ ] **Signature verification on unseal (Saavi store, encrypted+signed).**
+      Clearsigned messages are verified in both keyrings and the system
+      keyring shows gpg's verdict for encrypted messages. Still open: the
+      Saavi store does not look up the signer's key when an *encrypted*
+      message is also signed — pass candidates (own keys, To field, WKD)
+      to `decryptText` and show the verdict like `verifyText` does.
 - [ ] **Pin GitHub Actions to commit SHAs** (`tauri-action@v0`,
       `checkout@v4`, `setup-node@v4`, `rust-toolchain@stable`,
       `audit-check@v2`). Dependabot now tracks them, so pins stay fresh.
@@ -45,8 +45,11 @@ should get a CHANGELOG line.
 - [ ] **Hidden-recipient messages** (wildcard key ID) never match in
       `neededKeyFor`; they read as "no key fits" instead of prompting.
 
-- [ ] **System keyring, next slice:** edit expiry / add UID / set owner
-      trust, smartcard status (`--card-status`), pick the git-signing key.
+- [ ] **System keyring, next slice:** smartcard status (`--card-status`),
+      pick the git-signing key, revoke a whole key (import a revocation
+      certificate; gpg has no batch-safe `--quick-revoke-key`).
+- [ ] **OS keychain** (roadmap #1) so the Saavi-store passphrase is not
+      typed every session — the other half of the passphrase problem.
 - [ ] **System keyring on macOS without a GUI pinentry** (Homebrew gpg +
       no pinentry-mac): gpg fails to ask for the passphrase. Detect and
       point at `pinentry-mac`.
