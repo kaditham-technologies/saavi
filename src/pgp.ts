@@ -1,14 +1,17 @@
-// Saavi keystore + OpenPGP operations. OpenPGP.js only: keys are
-// generated client-side, the private key never leaves this device unencrypted,
-// and the server only ever holds public keys (registry) and ciphertext.
+// Saavi keystore + OpenPGP operations. OpenPGP.js only: keys are generated
+// on this device and the private key never leaves it unencrypted. There is
+// no server; the webmail that vendors this file (see docs/PARITY.md) adds
+// its own directory on top.
 //
-// v2 model — a keyring per address:
-//  - ONE active key: it is what the registry publishes, what signs, and what
-//    new letters are encrypted to.
+// Model — a keyring per address:
+//  - ONE active key: it is what signs, what gets published, and what new
+//    messages are encrypted to.
 //  - Rotating (generate or import while a key exists) RETIRES the old key
 //    instead of destroying it: retired private keys stay on the device so
-//    letters encrypted to them still open. Each key keeps its own passphrase.
-//  - localStorage is device-bound; backups are per-key downloads.
+//    messages encrypted to them still open. Each key keeps its own passphrase.
+//  - localStorage is device-bound; backups are per-key files. Private keys
+//    are stored passphrase-locked (OpenPGP S2K); unlocked keys live only in
+//    `sessionKeys`, in process memory.
 import * as openpgp from 'openpgp';
 
 const STORE_PREFIX = 'saavi-ring-';
@@ -253,8 +256,13 @@ export async function decryptText(armored: string, senderPublicKey?: string | nu
       decryptionKeys: [...sessionKeys.values()],
       ...(verificationKeys ? { verificationKeys } : {}),
     }));
-  } catch {
-    throw new Error('locked');
+  } catch (e) {
+    // Only a missing/locked key is 'locked'. Anything else — a tampered
+    // message (MDC/AEAD failure), a malformed packet — must surface as-is,
+    // never be mistaken for "try another passphrase".
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/session key|decryption key|no private key|not decrypted/i.test(msg)) throw new Error('locked');
+    throw e;
   }
   let signedBy: string | null = null;
   if (signatures?.length && verificationKeys) {

@@ -320,7 +320,10 @@ $('seal-dec').addEventListener('click', async () => {
     try {
       const out = await pgp.decryptText(text);
       sealShow('Unsealed text', out.text);
-    } catch {
+    } catch (e) {
+      if (!(e instanceof Error && e.message === 'locked')) {
+        return sealFail(`Could not unseal: ${e instanceof Error ? e.message : String(e)}`);
+      }
       for (const email of ringAddresses()) {
         const need = await pgp.neededKeyFor(email, text).catch(() => null);
         if (need) {

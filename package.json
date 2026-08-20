@@ -4,6 +4,17 @@
   "version": "0.1.1",
   "description": "Saavi (சாவி) — the friendliest face of GPG.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kaditham-technologies/saavi.git"
+  },
+  "homepage": "https://github.com/kaditham-technologies/saavi#readme",
+  "bugs": {
+    "url": "https://github.com/kaditham-technologies/saavi/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

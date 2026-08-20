@@ -18,7 +18,7 @@ Verifying Saavi {TAG}
    Compare it against https://kaditham.ie/saavi/ — published outside
    GitHub, so a compromised repository cannot swap the key and the
    binaries together. If it differs, stop and write to
-   webmaster@kaditham.me.
+   security@kaditham.me (see SECURITY.md in the repository).
 
 4. Verify the asset:
 

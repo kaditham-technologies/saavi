@@ -45,6 +45,20 @@ async function wkdFetch(url: string): Promise<Response> {
   return fetch(url);
 }
 
+/** A WKD response larger than this is not a key; refuse to buffer it. */
+const MAX_KEY_BYTES = 1 << 20;
+
+/** True when one of the key's user IDs is exactly this address (the domain
+ *  is authoritative for its own users, but a WKD server must not be able to
+ *  hand back a key for someone else — GnuPG applies the same check). */
+function keyCarriesAddress(key: openpgp.Key, address: string): boolean {
+  const want = address.toLowerCase();
+  return key.getUserIDs().some((uid) => {
+    const m = uid.match(/<([^>]+)>\s*$/);
+    return (m ? m[1] : uid).trim().toLowerCase() === want;
+  });
+}
+
 /**
  * Fetch an address's public key via WKD. Returns the armored key, or null
  * when the domain publishes none (or, in a plain browser, when CORS blocks
@@ -55,8 +69,12 @@ export async function wkdLookup(address: string): Promise<string | null> {
     try {
       const r = await wkdFetch(url);
       if (!r.ok) continue;
-      const bin = new Uint8Array(await r.arrayBuffer());
-      const key = await openpgp.readKey({ binaryKey: bin });
+      const len = Number(r.headers.get('content-length') ?? 0);
+      if (len > MAX_KEY_BYTES) continue;
+      const buf = await r.arrayBuffer();
+      if (buf.byteLength > MAX_KEY_BYTES) continue;
+      const key = await openpgp.readKey({ binaryKey: new Uint8Array(buf) });
+      if (!keyCarriesAddress(key, address)) continue;
       return key.armor();
     } catch {
       /* try the next form */
