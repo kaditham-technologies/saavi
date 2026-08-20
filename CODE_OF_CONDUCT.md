@@ -5,3 +5,6 @@ as its code of conduct.
 
 In short: be respectful. Disagree without being disagreeable. We're all
 here to keep keys private, not to win arguments.
+
+To report a concern, email **security@kaditham.me** (the same address as
+in SECURITY.md); reports are read by the maintainers only.
