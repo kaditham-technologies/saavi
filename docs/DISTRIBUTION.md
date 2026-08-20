@@ -51,17 +51,24 @@ The newest release's manifest is always at the stable URL
 
 ## What the download page does
 
-1. Fetch `latest.json` (server-side, cached a few minutes — it must not
-   be fetched by the visitor's browser from GitHub, so the page works even
-   if GitHub is blocked and so we don't leak visitors to a third party).
-2. Render one button per asset, picking the visitor's platform by default,
-   with the version, the SHA-256 and a "verify" link.
-3. **Mirror, don't hotlink.** Copy each asset, its `.sig`, `SHA256SUMS*`
-   and `saavi_pubkey.gpg` to our own storage (`downloads.kaditham.ie/saavi/vX.Y.Z/…`)
-   and serve from there. Verify the detached signature against the pinned
-   fingerprint at mirror time — a mirror that re-checks is what makes the
-   two channels independent.
-4. Show the fingerprint and the `gpg --verify` steps on the page itself.
+The page is **https://kaditham.ie/saavi/** — the URL the release note
+points at — built by `~/kaditham/downloads` on the web host (see its
+README; one `apps/<app>/` directory per product, so Kaditham Mail and
+later apps reuse it unchanged). Every 15 minutes it:
+
+1. Fetches the newest release from the GitHub API (server-side — the
+   visitor's browser never talks to GitHub, so the page works where GitHub
+   is blocked and we don't leak visitors to a third party).
+2. **Mirrors, doesn't hotlink.** Downloads every asset to
+   `kaditham.ie/saavi/dl/vX.Y.Z/…` and serves from there. Before anything
+   is published, `SHA256SUMS.asc` and every installer's `.sig` are verified
+   in a throwaway keyring holding only the pinned release key; a mismatch
+   publishes nothing. A mirror that re-checks is what makes the two
+   channels independent.
+3. Renders one card per platform (the visitor's first), every format with
+   size, SHA-256 and `.sig` link; re-publishes `latest.json` with mirror
+   URLs at `kaditham.ie/saavi/latest.json`.
+4. Shows the fingerprint and the `gpg --verify` steps on the page itself.
    That is the out-of-band publication step 3 of the release note relies on.
 
 ## Reusing this for other apps
