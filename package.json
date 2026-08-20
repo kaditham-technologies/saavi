@@ -1,7 +1,7 @@
 {
   "name": "saavi",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Saavi (சாவி) — the friendliest face of GPG.",
   "license": "MIT",
   "repository": {
