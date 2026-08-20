@@ -93,14 +93,17 @@ export async function fingerprintOf(armoredPublicKey: string): Promise<string> {
   return fmtFpr(key.getFingerprint());
 }
 
-/** Adopt a new active record, retiring any current active key. */
-function adopt(email: string, rec: KeyRecord): void {
+/** Adopt a new active record, retiring any current active key. Re-adopting
+ *  the key that is already active (restoring a backup "to be safe") replaces
+ *  it in place rather than retiring a copy of itself. */
+async function adopt(email: string, rec: KeyRecord, fpr?: string): Promise<void> {
   const ring = load(email);
-  if (ring) {
-    save(email, { active: rec, retired: [ring.active, ...ring.retired] });
-  } else {
-    save(email, { active: rec, retired: [] });
-  }
+  if (!ring) return save(email, { active: rec, retired: [] });
+  const newFpr = fpr ?? await rawFingerprint(rec);
+  if ((await rawFingerprint(ring.active)) === newFpr) return save(email, { active: rec, retired: ring.retired });
+  const retired: KeyRecord[] = [ring.active];
+  for (const r of ring.retired) if ((await rawFingerprint(r)) !== newFpr) retired.push(r);
+  save(email, { active: rec, retired });
 }
 
 export type KeyAlgo = 'curve25519' | 'rsa4096';
@@ -121,12 +124,12 @@ export async function generateKeys(
       ? await openpgp.generateKey({ ...base, type: 'rsa' as const, rsaBits: 4096 })
       : await openpgp.generateKey({ ...base, type: 'ecc' as const, curve: 'curve25519Legacy' as const });
   const rec: KeyRecord = { publicKey, privateKey, created: new Date().toISOString() };
-  adopt(email, rec);
+  await adopt(email, rec);
   return rec;
 }
 
 /**
- * Import an existing key — a Kaditham backup file or any ASCII-armored GPG
+ * Import an existing key — a Saavi backup file or any ASCII-armored GPG
  * private key export — as the NEW ACTIVE key. The passphrase must be the one
  * that unlocks that key (we verify by actually unlocking before anything is
  * stored); a cleartext export is locked with the given passphrase first.
@@ -137,12 +140,15 @@ export async function importKey(email: string, armoredSource: string, passphrase
     /-----BEGIN PGP PRIVATE KEY BLOCK-----[\s\S]*?-----END PGP PRIVATE KEY BLOCK-----/
   );
   if (!block) {
-    throw new Error('No PGP private key found. Paste an ASCII-armored export (gpg --export-secret-keys --armor) or a Kaditham backup file.');
+    throw new Error('No PGP private key found. Paste an ASCII-armored export (gpg --export-secret-keys --armor) or a Saavi backup file.');
   }
   const parsed = await openpgp.readPrivateKey({ armoredKey: block[0] });
   let unlocked: openpgp.PrivateKey;
   let storedArmor: string;
   if (parsed.isDecrypted()) {
+    // A cleartext export gets locked with the passphrase typed here, so it
+    // must meet the same floor as a generated key's.
+    if (passphrase.length < 12) throw new Error('This key has no passphrase yet. Choose one of at least 12 characters to lock it with.');
     unlocked = parsed;
     storedArmor = (await openpgp.encryptKey({ privateKey: parsed, passphrase })).armor();
   } else {
@@ -156,10 +162,10 @@ export async function importKey(email: string, armoredSource: string, passphrase
   const rec: KeyRecord = {
     publicKey: unlocked.toPublic().armor(),
     privateKey: storedArmor,
-    created: new Date().toISOString(),
+    created: unlocked.getCreationTime().toISOString(),
   };
-  adopt(email, rec);
   const fpr = unlocked.getFingerprint();
+  await adopt(email, rec, fpr);
   sessionKeys.set(fpr, unlocked);   // verified above — starts unlocked
   activeSessionFpr = fpr;
   activeByEmail.set(email.toLowerCase(), fpr);

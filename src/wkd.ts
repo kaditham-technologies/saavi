@@ -1,4 +1,4 @@
-// Web Key Directory lookup (direct method, draft-koch-openpgp-webkey-service):
+// Web Key Directory lookup (advanced then direct method, draft-koch-openpgp-webkey-service):
 // hash the local part, fetch the binary key over HTTPS, re-armor it.
 // No crypto here beyond SHA-1-as-address-hash, which is what the spec says.
 import * as openpgp from 'openpgp';
@@ -69,6 +69,8 @@ export async function wkdLookup(address: string): Promise<string | null> {
     try {
       const r = await wkdFetch(url);
       if (!r.ok) continue;
+      // Redirects are followed; the final hop must still be HTTPS.
+      if (r.url && !r.url.startsWith('https://')) continue;
       const len = Number(r.headers.get('content-length') ?? 0);
       if (len > MAX_KEY_BYTES) continue;
       const buf = await r.arrayBuffer();

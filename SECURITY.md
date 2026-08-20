@@ -18,8 +18,15 @@ no extension ecosystem.
   keys are generated and used on-device only.
 - Theft of the keystore file — private keys are stored passphrase-locked
   (OpenPGP S2K); the file alone is not enough.
-- Key substitution in transit — WKD lookups are HTTPS, and fingerprints
-  are always displayed for out-of-band verification.
+- Key substitution in transit — WKD lookups are HTTPS end to end
+  (redirects to plain HTTP are refused), the returned key must carry a
+  user ID for the exact address asked for, and your own keys' fingerprints
+  are shown for out-of-band verification. Recipients' fingerprints are not
+  yet displayed before sealing (see TODO.md): a domain's own WKD server is
+  trusted for its users, as in GnuPG.
+
+Generated keys do not expire; rotation in Saavi (generate a new key, the
+old one is retired but kept) is the intended lifecycle.
 
 **Saavi does NOT protect against:**
 - A compromised operating system or user account (keyloggers, memory

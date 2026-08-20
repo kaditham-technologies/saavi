@@ -64,3 +64,15 @@ describe('wkdLookup', () => {
     expect(await wkdLookup('ada@example.org')).toBeNull();
   });
 });
+
+describe('wkdLookup redirects', () => {
+  it('refuses a result whose final URL is not https', async () => {
+    const bin = await binaryKeyFor('ada@example.org');
+    mockFetch(() => {
+      const r = new Response(bin);
+      Object.defineProperty(r, 'url', { value: 'http://example.org/key' });
+      return r;
+    });
+    expect(await wkdLookup('ada@example.org')).toBeNull();
+  });
+});

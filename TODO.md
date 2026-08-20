@@ -29,9 +29,20 @@ should get a CHANGELOG line.
       SECURITY.md either way.
 - [ ] **Import: check the key carries the address** it is being filed
       under (`importKey` trusts the user-typed email). Warn, don't block.
+      (A 12-character floor now applies when a cleartext key is locked on
+      import; a locked key keeps whatever passphrase it came with.)
 - [ ] **Transitive RustSEC warnings** (`unic-*`, `proc-macro-error`
       unmaintained; `glib 0.18` unsound iterator). All via Tauri/gtk-rs;
       clears when Tauri bumps. Re-check on each Tauri upgrade.
+
+- [ ] **Show recipient fingerprints before sealing** (WKD or pasted), so
+      a substituted key at the recipient's domain is at least visible.
+- [ ] **Multiple pasted keys / mixed To field.** Only the first pasted
+      armored block is used and addresses beside a pasted key are ignored;
+      `gpg --export-secret-keys` with several keys imports only the first.
+      Say so, or handle all of them.
+- [ ] **Hidden-recipient messages** (wildcard key ID) never match in
+      `neededKeyFor`; they read as "no key fits" instead of prompting.
 
 ## Project hygiene
 
