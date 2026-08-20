@@ -19,8 +19,8 @@
         <option value="phosphor">Phosphor</option>
       </select>
       <nav class="tabs" role="tablist" aria-label="Mode">
-        <button id="tab-keys" class="tab on" role="tab" aria-selected="true">−k Keys</button>
-        <button id="tab-seal" class="tab" role="tab" aria-selected="false">−d Encrypt/Decrypt</button>
+        <button id="tab-keys" class="tab on" role="tab" aria-selected="true" title="⌘1 / Ctrl+1">−k Keys</button>
+        <button id="tab-seal" class="tab" role="tab" aria-selected="false" title="⌘2 / Ctrl+2">−d Encrypt/Decrypt</button>
       </nav>
     </header>
 
@@ -50,7 +50,7 @@
           <textarea id="seal-in" rows="9" placeholder="Write or paste — plain text to seal, or an armored PGP message to unseal."></textarea>
         </label>
         <div class="seal-acts">
-          <button id="seal-enc" class="primary">Seal</button>
+          <button id="seal-enc" class="primary" title="⌘↵ / Ctrl+Enter">Seal</button>
           <button id="seal-dec">Unseal</button>
           <button id="seal-copy" hidden>Copy result</button>
         </div>
@@ -94,7 +94,7 @@
         <p class="hint">Your new key is ready and unlocked for this session. Save the
         backup file somewhere safe — with your passphrase, it is the only way to
         recover this key.</p>
-        <p id="done-fpr" class="fpr"></p>
+        <p id="done-fpr" class="fpr" title="Fingerprint — compare it out of band"></p>
         <button type="button" id="m-save-backup" class="primary">Save backup file…</button>
         <p id="done-saved" class="hint" role="status"></p>
       </div>

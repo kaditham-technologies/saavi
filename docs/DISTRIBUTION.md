@@ -15,7 +15,7 @@ to `https://github.com/kaditham-technologies/saavi/releases/tag/vX.Y.Z`:
 
 | Asset | Purpose |
 |---|---|
-| `saavi_X.Y.Z_amd64.deb`, `saavi_X.Y.Z_amd64.AppImage` | the binaries (Tauri bundles) |
+| `saavi_X.Y.Z_amd64.deb`, `saavi_X.Y.Z_amd64.AppImage`, `Saavi_X.Y.Z_universal.dmg`, `Saavi_X.Y.Z_x64_en-US.msi`, `Saavi_X.Y.Z_x64-setup.exe` | the installers (Tauri bundles) |
 | `<asset>.sig` | detached GPG signature per binary |
 | `SHA256SUMS`, `SHA256SUMS.asc` | checksums; clearsigned copy |
 | `saavi_pubkey.gpg` | the release-signing public key |
@@ -66,7 +66,7 @@ The newest release's manifest is always at the stable URL
 
 ## Reusing this for other apps
 
-Copy `release.yml` and `.github/release-verify.md`, change the product
+Copy `release.yml`, `.github/release-verify.md` and `.github/release-install.md`, change the product
 name, identifier and the fingerprint line, and provision the same two
 secrets (`GPG_SIGNING_KEY`, and GitHub's own token). One signing key per
 app is preferable to one key for everything: a compromise of one app's
@@ -75,7 +75,8 @@ needs only the per-app `latest.json` URL.
 
 ## Not yet
 
-- macOS / Windows bundles (need signing identities; see TODO.md).
+- Apple notarization / Windows Authenticode (see TODO.md) — until then
+  `release-install.md` tells users how to get past the OS warnings.
 - In-app update checks (would use `latest.json`; the Tauri updater plugin
   needs its own minisign key — a separate decision).
 - Reproducible builds so third parties can regenerate the checksums.

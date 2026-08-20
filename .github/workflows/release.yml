@@ -2,24 +2,16 @@ name: Release
 on:
   push:
     tags: ['v*']
+permissions:
+  contents: read
 jobs:
-  linux:
+  notes:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      body: ${{ steps.notes.outputs.body }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
-      - uses: dtolnay/rust-toolchain@stable
-      - name: webview deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev \
-            libayatana-appindicator3-dev librsvg2-dev
-      - run: npm ci
-      - name: release notes from changelog
-        id: notes
+      - id: notes
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
         run: |
@@ -27,58 +19,87 @@ jobs:
           awk -v v="$ver" '/^## /{p=($2==v); next} p' CHANGELOG.md \
             | sed -e '/./,$!d' > notes.md
           if ! grep -q . notes.md; then
-            echo "no CHANGELOG.md section for $ver" >&2; exit 1
+            echo "::error::no CHANGELOG.md section for $ver" >&2; exit 1
           fi
           if [ -z "$GPG_SIGNING_KEY" ]; then
             echo "::error::GPG_SIGNING_KEY secret not set — every release must be signed" >&2; exit 1
           fi
+          { echo; cat .github/release-install.md; } >> notes.md
           printf '%s' "$GPG_SIGNING_KEY" | gpg --batch --import
           sed "s/{TAG}/$GITHUB_REF_NAME/" .github/release-verify.md > verify.txt
           gpg --batch --yes --clearsign --output verify.txt.asc verify.txt
           { echo; echo '## Verify this release'; echo; echo '```text'; cat verify.txt.asc; echo '```'; } >> notes.md
           { echo 'body<<NOTES_EOF'; cat notes.md; echo 'NOTES_EOF'; } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: notes
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            args: --bundles deb,appimage
+          - os: macos-latest
+            args: --target universal-apple-darwin --bundles dmg
+          - os: windows-latest
+            args: --bundles msi,nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - name: webview deps (linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+      - run: npm ci
+      - run: npm test
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Saavi ${{ github.ref_name }}
-          releaseBody: ${{ steps.notes.outputs.body }}
-          releaseDraft: false
-      - name: Sign artifacts
+          releaseBody: ${{ needs.notes.outputs.body }}
+          releaseDraft: true
+          args: ${{ matrix.args }}
+
+  sign:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sign every asset, write SHA256SUMS + latest.json, publish
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -z "$GPG_SIGNING_KEY" ]; then
-            echo "::error::GPG_SIGNING_KEY secret not set — refusing to publish an unsigned release" >&2
-            gh release delete "$GITHUB_REF_NAME" --yes || true
-            exit 1
-          fi
+          set -euo pipefail
           printf '%s' "$GPG_SIGNING_KEY" | gpg --batch --import
+          mkdir out && cd out
+          gh release download "$GITHUB_REF_NAME" --dir .
           shopt -s nullglob
-          mkdir -p out
-          for f in src-tauri/target/release/bundle/deb/*.deb \
-                   src-tauri/target/release/bundle/appimage/*.AppImage; do
-            cp "$f" out/
-            gpg --batch --yes --detach-sign --output "out/$(basename "$f").sig" "$f"
+          assets=( *.deb *.AppImage *.dmg *.msi *.exe *.rpm )
+          [ ${#assets[@]} -gt 0 ] || { echo "::error::no installers on the release" >&2; exit 1; }
+          for f in "${assets[@]}"; do
+            gpg --batch --yes --detach-sign --output "$f.sig" "$f"
           done
-          gpg --batch --export --armor > out/saavi_pubkey.gpg
-          cd out
-          sha256sum *.deb *.AppImage > SHA256SUMS
+          sha256sum "${assets[@]}" > SHA256SUMS
           gpg --batch --yes --clearsign --output SHA256SUMS.asc SHA256SUMS
-          gh release upload "$GITHUB_REF_NAME" ./*.sig saavi_pubkey.gpg SHA256SUMS SHA256SUMS.asc
-      - name: Download manifest (latest.json)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # A machine-readable index of this release for download pages
-          # (kaditham.ie/saavi and siblings) — see docs/DISTRIBUTION.md.
+          gpg --batch --export --armor > saavi_pubkey.gpg
+
           base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
           ver="${GITHUB_REF_NAME#v}"
           date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          shopt -s nullglob
-          cd out
           {
             printf '{\n  "name": "Saavi",\n  "version": "%s",\n  "tag": "%s",\n  "published": "%s",\n' "$ver" "$GITHUB_REF_NAME" "$date"
             printf '  "release_url": "https://github.com/%s/releases/tag/%s",\n' "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
@@ -88,13 +109,16 @@ jobs:
             first=1
             while read -r sum name; do
               case "$name" in
-                *.deb)      platform=linux; format=deb ;;
-                *.AppImage) platform=linux; format=appimage ;;
-                *.dmg)      platform=macos; format=dmg ;;
+                *.deb)      platform=linux;   format=deb ;;
+                *.rpm)      platform=linux;   format=rpm ;;
+                *.AppImage) platform=linux;   format=appimage ;;
+                *.dmg)      platform=macos;   format=dmg ;;
                 *.msi)      platform=windows; format=msi ;;
+                *.exe)      platform=windows; format=nsis ;;
                 *)          platform=unknown; format="${name##*.}" ;;
               esac
-              arch=x86_64; case "$name" in *aarch64*|*arm64*) arch=aarch64 ;; esac
+              arch=x86_64
+              case "$name" in *universal*) arch=universal ;; *aarch64*|*arm64*) arch=aarch64 ;; esac
               [ $first = 1 ] || printf ',\n'; first=0
               printf '    { "name": "%s", "platform": "%s", "arch": "%s", "format": "%s", "url": "%s/%s", "sig": "%s/%s.sig", "sha256": "%s" }' \
                 "$name" "$platform" "$arch" "$format" "$base" "$name" "$base" "$name" "$sum"
@@ -102,4 +126,5 @@ jobs:
             printf '\n  ]\n}\n'
           } > latest.json
           python3 -m json.tool latest.json > /dev/null
-          gh release upload "$GITHUB_REF_NAME" latest.json --clobber
+          gh release upload "$GITHUB_REF_NAME" ./*.sig saavi_pubkey.gpg SHA256SUMS SHA256SUMS.asc latest.json --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- macOS (universal `.dmg`) and Windows (`.msi`, `-setup.exe`) builds join
+  Linux in every release, each GPG-signed and listed in `latest.json`.
+  Release notes carry first-launch instructions for the OS warnings
+  (no Apple/Microsoft code-signing yet).
+- The webview can now write only to the file chosen in the save dialog —
+  the static `$HOME/**` scope is gone (closes the last audit item).
+- Desktop polish: native widgets follow the active theme, thin
+  scrollbars, no rubber-banding, visible keyboard focus, ⌘/Ctrl+1 / 2 to
+  switch modes and ⌘/Ctrl+Enter to seal. Icon re-rendered from the SVG
+  at 1024 px with `.icns` / `.ico`.
+
 ## 0.1.2 — 2026-08-20
 
 - Security: WKD results are accepted only when the fetched key carries a

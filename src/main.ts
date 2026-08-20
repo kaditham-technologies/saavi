@@ -272,7 +272,12 @@ $('modal-form').addEventListener('submit', async (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('modal').hidden) closeModal();
+  if (e.key === 'Escape' && !$('modal').hidden) return closeModal();
+  const mod = e.metaKey || e.ctrlKey;
+  if (!mod || !$('modal').hidden) return;
+  if (e.key === '1') { e.preventDefault(); selectTab('keys'); }
+  else if (e.key === '2') { e.preventDefault(); selectTab('seal'); }
+  else if (e.key === 'Enter' && !$('view-seal').hidden) { e.preventDefault(); $('seal-enc').click(); }
 });
 
 // ---------- the sealer (−d) ----------

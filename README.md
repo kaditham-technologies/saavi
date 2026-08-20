@@ -71,6 +71,7 @@ OpenPGP.js (LGPL-3.0-or-later), are listed in
 - [CHANGELOG](CHANGELOG.md) · [Roadmap](docs/ROADMAP.md) · [Parity with Kaditham Mail](docs/PARITY.md) · [Distribution](docs/DISTRIBUTION.md)
 - [Contributing](CONTRIBUTING.md) · [TODO / hardening backlog](TODO.md) · [Security policy](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md)
 - Downloads: [GitHub releases](https://github.com/kaditham-technologies/saavi/releases)
-  (signed `.deb` / `.AppImage`, `SHA256SUMS.asc`, `latest.json`), mirrored
+  (Linux `.deb`/`.AppImage`, macOS `.dmg`, Windows `.msi`/`.exe` — all
+  GPG-signed, with `SHA256SUMS.asc` and `latest.json`), mirrored
   on the Kaditham site. Every release carries a clearsigned verification
   note; the signing-key fingerprint is published on the website too.

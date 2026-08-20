@@ -16,7 +16,9 @@
         "width": 860,
         "height": 640,
         "minWidth": 520,
-        "minHeight": 400
+        "minHeight": 400,
+        "center": true,
+        "resizable": true
       }
     ],
     "security": {
@@ -25,15 +27,30 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "deb",
-      "appimage"
-    ],
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.png"
-    ]
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Utility",
+    "shortDescription": "The friendliest face of GPG.",
+    "longDescription": "Saavi manages OpenPGP keys and seals/unseals text on your device. Keys never leave it; recipients are found over WKD.",
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
   }
 }

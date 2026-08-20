@@ -6,10 +6,10 @@ should get a CHANGELOG line.
 
 ## Security
 
-- [ ] **Narrow the fs write scope.** `src-tauri/capabilities/default.json`
-      allows `fs:allow-write-text-file` under `$HOME/**`. The dialog plugin
-      should add the user-chosen path to the scope by itself; verify in the
-      real shell, then drop `$HOME/**` (keep `$DOWNLOAD`/`$DOCUMENT` at most).
+- [x] **Narrow the fs write scope.** Verified in `tauri-plugin-dialog`
+      2.7.2 source (`commands.rs:251`): `save()` adds the chosen path to the
+      fs scope itself. The static `$HOME/**` scope is gone; the webview can
+      write only to the file the user just picked.
 - [ ] **Auto-lock.** `pgp.clearSession()` exists but is never called.
       Unlocked keys live in memory until the app exits. Add an idle timeout
       (e.g. 15 min) and a manual "Lock all" toolbar action.
@@ -55,7 +55,9 @@ should get a CHANGELOG line.
 - [ ] **Issue / PR templates**, `CODEOWNERS`.
 - [ ] **Reproducible builds** (ROADMAP #6): publish hashes a third party
       can regenerate.
-- [ ] **macOS / Windows release targets** once signing identities exist.
+- [ ] **Apple Developer ID + notarization, Windows Authenticode** so
+      testers stop seeing Gatekeeper / SmartScreen warnings. Builds for
+      both platforms now ship unsigned-by-OS (GPG-signed only).
 - [ ] **Download page** on the Kaditham site consuming `latest.json` and
       mirroring assets (docs/DISTRIBUTION.md). Template for Mail/Calendar.
 - [ ] **First tagged release after this preflight** to exercise the new
