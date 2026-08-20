@@ -16,6 +16,8 @@ people's keys, so we ask for rigour over speed.
 - `src/main.ts` — the app: the −k key table and the −d sealer, branching
   on the keyring source (Saavi store / System GnuPG).
 - `src/style.css` — the design system; tokens at the top, sections below.
+- `src-tauri/src/keychain.rs` + `src/keychain.ts` — OS credential store
+  for Saavi-store passphrases (opt-in).
 - `src-tauri/src/gpg.rs` — the system keyring: runs the user's `gpg` with
   fixed arguments, parses `--with-colons` and `--status-fd`. **Never a
   second OpenPGP implementation here** — if gpg can't do it, we don't.

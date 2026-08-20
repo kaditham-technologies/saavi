@@ -2,9 +2,8 @@
 
 Ordered by intent, not promise.
 
-1. **OS keychain** — move keystore locking from passphrase-only to the
-   platform keychain (GNOME Keyring / macOS Keychain / Windows
-   Credential Manager) via the Tauri keyring plugin.
+1. ~~**OS keychain**~~ — shipped: opt-in per key; the passphrase is kept
+   in the platform store (`keyring` crate) and the key unlocks silently.
 2. ~~**Files**~~ — shipped: seal/unseal via buttons or drag-and-drop, both
    keyrings, signature verdicts shown.
 3. ~~**System GnuPG keyring**~~ — shipped: the real `~/.gnupg` as a second

@@ -215,6 +215,8 @@ body.src-system .dot-open { background: var(--accent); box-shadow: 0 0 6px color
 .pass-row { display: flex; gap: 6px; }
 .pass-row input { flex: 1; min-width: 0; }
 .suggest { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--ink-2); line-height: 1.4; cursor: pointer; }
+.check input { margin-top: 3px; accent-color: var(--accent); }
 
 /* ============ the modal ============ */
 .veil {

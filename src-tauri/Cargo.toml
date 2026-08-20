@@ -15,6 +15,14 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-http = "2"
 serde = { version = "1", features = ["derive"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+[features]
+# `cargo tauri build` enables this; it makes the binary serve the embedded
+# frontend (dist/) instead of the dev server URL. Default on, so a plain
+# `cargo build --release` also produces a real app.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
 
 [profile.release]
 lto = true

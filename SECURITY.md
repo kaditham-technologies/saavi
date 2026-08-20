@@ -35,6 +35,18 @@ old one is retired but kept) is the intended lifecycle.
 - Loss: there is no escrow and no recovery. The backup file plus the
   passphrase are the only path back.
 
+## OS keychain (Saavi store, opt-in)
+
+If the user asks Saavi to remember a Saavi-store passphrase, it is written
+to the platform credential store (`keyring` crate: macOS Keychain, Windows
+Credential Manager, Secret Service on Linux) under service
+`ie.kaditham.saavi`, one entry per key fingerprint. The key's protection
+at rest then rests on the OS login and the store's own guarantees rather
+than on a passphrase only the user knows — the standard desktop trade,
+stated in the checkbox itself. Nothing is remembered unless ticked; the
+entry can be removed from Details → "Forget in keychain". The system
+GnuPG keyring is unaffected: gpg-agent owns its own caching.
+
 ## System GnuPG mode
 
 When the user switches the keyring source to System GnuPG, Saavi is a

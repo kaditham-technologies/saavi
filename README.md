@@ -59,6 +59,10 @@ keys from the GnuPG keyring.
 | **−k Keys** | The keyring: a table of every key — address, key ID, created, status/trust, secret-key presence — with New / Import / Backup / Delete / Details on a toolbar. Details shows fingerprint, subkeys, user IDs, and (system keyring) lets you set expiry, change passphrase, add or revoke user IDs, set owner trust, certify keys, fetch from keys.openpgp.org. |
 | **−d Encrypt/Decrypt** | The sealer: paste or type text, name recipients (WKD / keys.openpgp.org lookup, or paste a key), choose whether to sign, then Seal, Unseal, Sign (clearsign) or Verify. Drop a file on the window to seal it; drop a `.gpg` to unseal. Signature verdicts are shown on every unseal and verify. |
 
+Tired of typing it? Tick **remember in the OS keychain** when unlocking
+and Saavi opens the key through macOS Keychain / Windows Credential
+Manager / your Linux keyring instead — per key, opt-in, reversible.
+
 First key? The wizard can **suggest a passphrase** — six random words
 from the EFF list, about 77 bits — and asks you to keep it in a password
 manager (KeePassXC, Bitwarden). Saavi will not try to be one.
@@ -73,7 +77,7 @@ docker run --rm -u $(id -u) -v "$PWD":/app -w /app node:22-alpine npm run build
 ```
 
 Desktop shell (needs Rust + platform webview headers; on Debian/Ubuntu:
-`libwebkit2gtk-4.1-dev build-essential libssl-dev`):
+`libwebkit2gtk-4.1-dev build-essential libssl-dev libdbus-1-dev`):
 
 ```sh
 cargo install tauri-cli --version '^2'

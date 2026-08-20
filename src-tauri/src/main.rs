@@ -4,6 +4,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod gpg;
+mod keychain;
 
 fn main() {
     tauri::Builder::default()
@@ -30,6 +31,10 @@ fn main() {
             gpg::gpg_recv_key,
             gpg::gpg_encrypt_file,
             gpg::gpg_decrypt_file,
+            keychain::keychain_available,
+            keychain::keychain_get,
+            keychain::keychain_set,
+            keychain::keychain_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Saavi");

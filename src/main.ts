@@ -6,6 +6,7 @@
 import './style.css';
 import * as pgp from './pgp';
 import * as gpg from './gpg';
+import * as keychain from './keychain';
 import { wkdLookup } from './wkd';
 import { vksLookup } from './vks';
 import { ask, confirmBox, notice } from './ui';
@@ -45,6 +46,37 @@ function ringAddresses(): string[] {
     if (k.startsWith('saavi-ring-')) out.push(k.slice('saavi-ring-'.length));
   }
   return out.sort();
+}
+
+// ---------- OS keychain (Saavi store) ----------
+let keychainOk = false;
+void keychain.available().then((ok) => { keychainOk = ok; });
+
+/** Raw fingerprint of a Saavi-store key (active by default). */
+async function saaviFpr(email: string, fingerprint?: string): Promise<string | null> {
+  if (fingerprint) return fingerprint.replace(/\s+/g, '').toLowerCase();
+  const k = pgp.keysFor(email);
+  return k ? (await pgp.fingerprintOf(k.publicKey)).replace(/\s+/g, '').toLowerCase() : null;
+}
+
+/** Unlock from the keychain without asking, if the user chose to remember. */
+async function tryKeychainUnlock(email: string, fingerprint?: string): Promise<boolean> {
+  if (!keychainOk) return false;
+  try {
+    const fpr = await saaviFpr(email, fingerprint);
+    if (!fpr) return false;
+    const pass = await keychain.get(fpr);
+    if (!pass) return false;
+    await pgp.unlockPrivateKey(email, pass, fingerprint);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function rememberInKeychain(email: string, pass: string, fingerprint?: string): Promise<void> {
+  const fpr = await saaviFpr(email, fingerprint);
+  if (fpr) await keychain.set(fpr, pass);
 }
 
 // ---------- files through the shell ----------
@@ -210,6 +242,7 @@ async function refreshKeys(): Promise<void> {
 
   const flat: { email: string; info: pgp.KeyInfo }[] = [];
   for (const email of ringAddresses()) {
+    if (!pgp.isUnlocked(email)) await tryKeychainUnlock(email);
     for (const info of await pgp.listKeys(email).catch(() => [] as pgp.KeyInfo[])) flat.push({ email, info });
   }
   if (source !== go) return;
@@ -374,8 +407,18 @@ async function openDetails(): Promise<void> {
     detailRow(grid, 'Status', s.isActive ? 'active — signs and receives new messages' : 'retired — still opens old messages');
     detailRow(grid, 'Unlocked', pgp.isUnlocked(s.email) && s.isActive ? 'yes, this session' : 'no');
     detailRow(grid, 'Store', 'Saavi (OpenPGP.js), passphrase-locked on this device');
+    const raw = s.fpr.replace(/\s+/g, '').toLowerCase();
+    const remembered = keychainOk ? await keychain.get(raw).then((p) => !!p).catch(() => false) : false;
+    if (keychainOk) detailRow(grid, 'OS keychain', remembered ? 'passphrase remembered — unlocks without asking' : 'not remembered');
     body.append(grid);
     action('Copy fingerprint', copyFpr(s.fpr));
+    if (remembered) {
+      action('Forget in keychain', async () => {
+        await keychain.forget(raw);
+        status('Keychain entry removed; the passphrase will be asked again.');
+        await openDetails();
+      });
+    }
     if (rec) {
       const pub = rec.publicKey;
       action('Export public key…', async () => {
@@ -504,6 +547,7 @@ function setSrc(src: 'generate' | 'import'): void {
   $('f-pass2').hidden = sys || src !== 'generate';
   $('f-suggest').hidden = sys || src !== 'generate';
   $('f-fpr').hidden = !sys || src !== 'import';
+  $('f-remember').hidden = sys || src !== 'generate' || !keychainOk;
   $('m-import-label').textContent = sys
     ? 'Armored public or secret key (gpg --export / --export-secret-keys --armor)'
     : 'Armored private key or Saavi backup file';
@@ -527,6 +571,8 @@ function openModal(mode: ModalMode, unlock?: { email: string; fingerprint?: stri
   $('f-email2').hidden = false;
   $('f-suggest').hidden = true;
   $('f-fpr').hidden = true;
+  $('f-remember').hidden = !(keychainOk && source === 'saavi' && mode !== 'import');
+  ($('m-remember') as HTMLInputElement).checked = false;
   ($('m-cancel') as HTMLButtonElement).hidden = false;
   $('m-go').textContent = 'Continue';
   $('modal-src').hidden = mode === 'unlock';
@@ -617,6 +663,9 @@ $('modal-form').addEventListener('submit', async (e) => {
   try {
     if (modalMode === 'unlock' && unlockFor) {
       await pgp.unlockPrivateKey(unlockFor.email, pass, unlockFor.fingerprint);
+      if (($('m-remember') as HTMLInputElement).checked) {
+        await rememberInKeychain(unlockFor.email, pass, unlockFor.fingerprint).catch((e) => status(`Unlocked, but not remembered: ${errMsg(e)}`));
+      }
       $('modal').hidden = true;
       const then = unlockFor.then;
       unlockFor = null;
@@ -651,6 +700,9 @@ $('modal-form').addEventListener('submit', async (e) => {
         if (pass.length < 12) throw new Error('Use at least 12 characters — this passphrase is the whole lock. "Suggest one" makes a strong one for you.');
         const rec = await pgp.generateKeys(email, name, pass, algo);
         await pgp.unlockPrivateKey(email, pass);
+        if (($('m-remember') as HTMLInputElement).checked) {
+          await rememberInKeychain(email, pass).catch((e) => status(`Created, but not remembered: ${errMsg(e)}`));
+        }
         doneFor = { kind: 'saavi', ref: email };
         showDone(await pgp.fingerprintOf(rec.publicKey), '');
       }
@@ -715,8 +767,9 @@ async function resolveSaaviRecipients(toRaw: string): Promise<{ keys: string[]; 
 }
 
 /** Make sure the Saavi signing key is unlocked; prompts if not. Resolves false if the user bails. */
-function ensureUnlocked(email: string): Promise<boolean> {
-  if (pgp.isUnlocked(email)) return Promise.resolve(true);
+async function ensureUnlocked(email: string): Promise<boolean> {
+  if (pgp.isUnlocked(email)) return true;
+  if (await tryKeychainUnlock(email)) return true;
   return new Promise((resolve) => {
     openModal('unlock', { email, then: () => resolve(true), cancel: () => resolve(false) });
   });
@@ -837,6 +890,7 @@ $('seal-dec').addEventListener('click', async () => {
         const need = await pgp.neededKeyFor(email, text).catch(() => null);
         if (!need) continue;
         if (need.unlocked) return sealFail(`This message names the key for ${email}, but that key cannot open it. The message may be damaged.`);
+        if (await tryKeychainUnlock(email, need.fingerprint)) return attempt();
         openModal('unlock', { email, fingerprint: need.fingerprint, then: () => void attempt() });
         return;
       }
@@ -933,6 +987,7 @@ async function unsealFile(input: string | null): Promise<void> {
         const need = await pgp.neededKeyForBytes(email, data).catch(() => null);
         if (!need) continue;
         if (need.unlocked) return fileStatus(`The key for ${email} cannot open this file; it may be damaged.`);
+        if (await tryKeychainUnlock(email, need.fingerprint)) return attempt();
         openModal('unlock', { email, fingerprint: need.fingerprint, then: () => void attempt() });
         return;
       }

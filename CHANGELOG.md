@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **OS keychain** (roadmap #1, Saavi store): tick "remember in the OS
+  keychain" when unlocking or creating a key and the passphrase is kept
+  in macOS Keychain / Windows Credential Manager / Secret Service; Saavi
+  then unlocks without asking. Per key, opt-in, "Forget" in Details.
+  Offered only where a credential store exists.
 - Security (review follow-ups): recipients are passed to gpg in exact-
   mailbox form (`<addr>`) — a bare address is a substring match that a
   look-alike key could win; a sender-chosen filename inside a sealed file

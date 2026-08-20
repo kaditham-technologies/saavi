@@ -12,7 +12,9 @@ should get a CHANGELOG line.
       write only to the file the user just picked.
 - [ ] **Auto-lock.** `pgp.clearSession()` exists but is never called.
       Unlocked keys live in memory until the app exits. Add an idle timeout
-      (e.g. 15 min) and a manual "Lock all" toolbar action.
+      (e.g. 15 min) and a manual "Lock all" toolbar action. (With the
+      keychain, re-unlock after a lock is silent for remembered keys, so
+      a short timeout costs nothing.)
 - [x] **Signing is silent.** A "Sign as" choice in the sealer; sealing
       signs only when a key is chosen, and the result label says so.
 - [ ] **Signature verification on unseal (Saavi store, encrypted+signed).**
@@ -48,8 +50,9 @@ should get a CHANGELOG line.
 - [ ] **System keyring, next slice:** smartcard status (`--card-status`),
       pick the git-signing key, revoke a whole key (import a revocation
       certificate; gpg has no batch-safe `--quick-revoke-key`).
-- [ ] **OS keychain** (roadmap #1) so the Saavi-store passphrase is not
-      typed every session — the other half of the passphrase problem.
+- [x] **OS keychain** (roadmap #1): opt-in remember / silent unlock /
+      forget. Untested on a real macOS/Windows store from CI; Linux
+      needs a Secret Service daemon (the option hides without one).
 - [ ] **System keyring on macOS without a GUI pinentry** (Homebrew gpg +
       no pinentry-mac): gpg fails to ask for the passphrase. Detect and
       point at `pinentry-mac`.
