@@ -10,11 +10,10 @@ should get a CHANGELOG line.
       2.7.2 source (`commands.rs:251`): `save()` adds the chosen path to the
       fs scope itself. The static `$HOME/**` scope is gone; the webview can
       write only to the file the user just picked.
-- [ ] **Auto-lock.** `pgp.clearSession()` exists but is never called.
-      Unlocked keys live in memory until the app exits. Add an idle timeout
-      (e.g. 15 min) and a manual "Lock all" toolbar action. (With the
-      keychain, re-unlock after a lock is silent for remembered keys, so
-      a short timeout costs nothing.)
+- [x] **Auto-lock.** Unlocked keys are dropped after 15 minutes without
+      input, and on demand (Lock on the toolbar, ⌘L / Ctrl+L). Keychain-
+      remembered keys reopen silently when next needed. The timeout is
+      fixed; a setting can come if anyone asks.
 - [x] **Signing is silent.** A "Sign as" choice in the sealer; sealing
       signs only when a key is chosen, and the result label says so.
 - [ ] **Signature verification on unseal (Saavi store, encrypted+signed).**

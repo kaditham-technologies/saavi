@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Auto-lock** (Saavi store): unlocked private keys are forgotten after
+  15 minutes without input, and on demand — Lock on the keyring toolbar
+  or ⌘L / Ctrl+L. Keys remembered in the OS keychain reopen silently when
+  next needed; the rest ask for their passphrase again.
 - **OS keychain** (roadmap #1, Saavi store): tick "remember in the OS
   keychain" when unlocking or creating a key and the passphrase is kept
   in macOS Keychain / Windows Credential Manager / Secret Service; Saavi

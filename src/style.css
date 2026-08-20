@@ -162,6 +162,7 @@ button:focus:not(:focus-visible) { outline: none; }
 .ring-note { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch; }
 .row.dead .c-addr, .row.dead .c-id { text-decoration: line-through; opacity: 0.6; }
 .row.dead .chip { color: #c0392b; }
+body.src-system #act-lock { display: none; }
 body.src-system .dot-open { background: var(--accent); box-shadow: 0 0 6px color-mix(in oklch, var(--accent) 50%, transparent); }
 
 /* ============ −d: the sealer ============ */

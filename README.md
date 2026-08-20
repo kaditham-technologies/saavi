@@ -26,7 +26,8 @@ Mail if you have it.
   download yourself.
 - **Private keys are passphrase-locked at rest** (OpenPGP S2K, armored);
   addresses and public keys sit beside them in the clear. Unlocked keys
-  exist only in process memory, per session.
+  exist only in process memory, and are dropped after 15 idle minutes or
+  with **Lock** (⌘L / Ctrl+L).
 - **Only public keys ever travel** — the app's sole network use is
   fetching other people's public keys over WKD (in system mode, gpg's own
   `--auto-key-locate wkd`). Nothing is uploaded.

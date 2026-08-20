@@ -42,6 +42,11 @@ let activeSessionFpr: string | null = null;
 // ring was unlocked last.
 const activeByEmail = new Map<string, string>();
 
+/** Any private key unlocked at all (active or retired, any address). */
+export function hasUnlockedKeys(): boolean {
+  return sessionKeys.size > 0;
+}
+
 export function clearSession(): void {
   sessionKeys.clear();
   activeSessionFpr = null;

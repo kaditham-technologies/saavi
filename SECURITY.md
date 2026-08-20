@@ -17,7 +17,8 @@ no extension ecosystem.
 - Server-side reading of your keys or plaintext — there is no server;
   keys are generated and used on-device only.
 - Theft of the keystore file — private keys are stored passphrase-locked
-  (OpenPGP S2K); the file alone is not enough.
+  (OpenPGP S2K); the file alone is not enough. Unlocked keys are held in
+  memory only, and dropped after 15 minutes without input or on Lock.
 - Key substitution in transit — WKD lookups are HTTPS end to end
   (redirects to plain HTTP are refused), the returned key must carry a
   user ID for the exact address asked for, and your own keys' fingerprints

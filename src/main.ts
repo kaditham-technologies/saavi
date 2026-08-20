@@ -22,6 +22,7 @@ const ICONS: Record<string, string> = {
   trash: '<path d="M2.8 4.3h10.4"/><path d="M5.6 4.3v-1a1 1 0 0 1 1-1h2.8a1 1 0 0 1 1 1v1"/><path d="m4.3 4.3.6 8.2a1.1 1.1 0 0 0 1.1 1h4a1.1 1.1 0 0 0 1.1-1l.6-8.2"/>',
   refresh: '<path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 1.5v3h-3"/>',
   info: '<circle cx="8" cy="8" r="5.6"/><path d="M8 7.2v3.6"/><path d="M8 5.2v.2"/>',
+  lock: '<rect x="3.4" y="7" width="9.2" height="6.4" rx="1.2"/><path d="M5.4 7V5.2a2.6 2.6 0 0 1 5.2 0V7"/><path d="M8 9.6v1.6"/>',
 };
 
 for (const holder of document.querySelectorAll<HTMLElement>('[data-ico]')) {
@@ -78,6 +79,38 @@ async function rememberInKeychain(email: string, pass: string, fingerprint?: str
   const fpr = await saaviFpr(email, fingerprint);
   if (fpr) await keychain.set(fpr, pass);
 }
+
+// ---------- auto-lock (Saavi store) ----------
+// Unlocked keys live only in memory; drop them after IDLE_MS without input,
+// or on demand. Keys remembered in the OS keychain reopen silently the next
+// time they are needed, so the timeout costs nothing for those; for the
+// rest it bounds how long a walked-away-from machine holds open keys.
+const IDLE_MS = 15 * 60 * 1000;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
+let lastArm = 0;
+
+function lockAll(why: 'idle' | 'manual'): void {
+  pgp.clearSession();
+  const msg = why === 'idle' ? 'Locked: no input for 15 minutes.' : 'Locked: unlocked keys forgotten.';
+  if (source === 'saavi' && $('modal').hidden) {
+    // Re-render without the keychain, or the lock would undo itself at once.
+    void refreshKeys({ keychain: false }).then(() => status(msg));
+  } else {
+    status(msg);
+  }
+}
+
+function armIdle(): void {
+  const now = Date.now();
+  if (now - lastArm < 1000) return; // mousemove fires constantly; cheap reset
+  lastArm = now;
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { if (pgp.hasUnlockedKeys()) lockAll('idle'); else armIdle(); }, IDLE_MS);
+}
+for (const ev of ['pointerdown', 'keydown', 'mousemove', 'wheel', 'focus'] as const) {
+  window.addEventListener(ev, armIdle, { passive: true, capture: true });
+}
+armIdle();
 
 // ---------- files through the shell ----------
 async function saveTextFile(filename: string, text: string): Promise<string | null> {
@@ -234,7 +267,7 @@ function markSelected(rows: HTMLElement, row: HTMLElement): void {
 const keyLabel = (k: gpg.SystemKey): string => k.uids[0]?.email || k.uids[0]?.name || k.key_id;
 const dead = (k: gpg.SystemKey): boolean => k.revoked || k.expired || k.disabled;
 
-async function refreshKeys(): Promise<void> {
+async function refreshKeys(opts: { keychain?: boolean } = {}): Promise<void> {
   const rows = $('rows');
   rows.replaceChildren(el('p', 'loading', 'Reading the keyring…'));
   const go = source;
@@ -242,7 +275,7 @@ async function refreshKeys(): Promise<void> {
 
   const flat: { email: string; info: pgp.KeyInfo }[] = [];
   for (const email of ringAddresses()) {
-    if (!pgp.isUnlocked(email)) await tryKeychainUnlock(email);
+    if (opts.keychain !== false && !pgp.isUnlocked(email)) await tryKeychainUnlock(email);
     for (const info of await pgp.listKeys(email).catch(() => [] as pgp.KeyInfo[])) flat.push({ email, info });
   }
   if (source !== go) return;
@@ -332,6 +365,7 @@ async function refreshSystemKeys(rows: HTMLElement): Promise<void> {
 const signingKeys = (): gpg.SystemKey[] => systemKeys.filter((k) => k.has_secret && k.can_sign && !dead(k));
 
 $('act-refresh').addEventListener('click', () => void refreshKeys());
+$('act-lock').addEventListener('click', () => lockAll('manual'));
 $('act-new').addEventListener('click', () => openModal('generate'));
 $('act-import').addEventListener('click', () => openModal('import'));
 $('act-details').addEventListener('click', () => void openDetails());
@@ -726,6 +760,7 @@ document.addEventListener('keydown', (e) => {
   if (!mod || !$('modal').hidden) return;
   if (e.key === '1') { e.preventDefault(); selectTab('keys'); }
   else if (e.key === '2') { e.preventDefault(); selectTab('seal'); }
+  else if (e.key === 'l' || e.key === 'L') { e.preventDefault(); lockAll('manual'); }
   else if (e.key === 'Enter' && !$('view-seal').hidden) { e.preventDefault(); $('seal-enc').click(); }
 });
 

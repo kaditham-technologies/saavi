@@ -27,10 +27,13 @@ describe('keystore', () => {
     await pgp.generateKeys(ME, 'Me', PASS);
     await expect(pgp.unlockPrivateKey(ME, 'wrong')).rejects.toThrow();
     expect(pgp.isUnlocked(ME)).toBe(false);
+    expect(pgp.hasUnlockedKeys()).toBe(false);
     await pgp.unlockPrivateKey(ME, PASS);
     expect(pgp.isUnlocked(ME)).toBe(true);
-    pgp.clearSession();
+    expect(pgp.hasUnlockedKeys()).toBe(true);
+    pgp.clearSession(); // what Lock / the idle timer call
     expect(pgp.isUnlocked(ME)).toBe(false);
+    expect(pgp.hasUnlockedKeys()).toBe(false);
   });
 
   it('rotating retires the old key instead of deleting it', async () => {
