@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.2 — 2026-08-20
 
 - Security: WKD results are accepted only when the fetched key carries a
   user ID for the exact address looked up (a domain's WKD server could
