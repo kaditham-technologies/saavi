@@ -51,6 +51,15 @@ body {
 }
 button { cursor: pointer; font-family: inherit; }
 button, select { -webkit-app-region: no-drag; }
+/* WebKitGTK paints its own (white) control unless appearance is off; macOS
+   honours the background anyway. One chevron for every theme. */
+select {
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23888a94' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat; background-position: right 8px center;
+  padding-right: 24px !important;
+}
+select option { background: var(--card); color: var(--ink); }
 /* Chrome is not text: no I-beam, no stray selection when dragging. */
 .bar, .toolbar, .cols, .tabs, .status, .seg, .card-acts, .seal-acts { user-select: none; -webkit-user-select: none; }
 /* Thin scrollbars everywhere WebKit/WebView2 would otherwise draw the heavy OS bar. */

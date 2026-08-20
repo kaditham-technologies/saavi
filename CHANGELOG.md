@@ -8,6 +8,8 @@
   instead. "Remember in the OS keychain" starts ticked where a credential
   store exists, so the words are typed essentially never. Saavi still is
   not a password manager; the hint names a few.
+- Fixed: on Linux the theme and keyring dropdowns rendered as white native
+  controls regardless of theme.
 
 ## 0.2.0 — 2026-08-20
 
