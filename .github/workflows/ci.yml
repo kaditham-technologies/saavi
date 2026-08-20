@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 20, cache: npm }
       - run: npm ci
       - run: npm run build
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 20, cache: npm }
       - run: npm ci
       - run: npm audit --audit-level=high
@@ -38,7 +38,7 @@ jobs:
     needs: frontend
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 20, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
       - name: webview deps
@@ -74,7 +74,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 20, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
         with:
