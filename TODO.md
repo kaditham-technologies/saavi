@@ -35,9 +35,10 @@ should get a CHANGELOG line.
 
 ## Project hygiene
 
-- [ ] **Tests.** `pgp.ts` and `wkd.ts` have none. Start with: zbase32
-      vectors, WKD user-ID check, v1→v2 keystore migration, tamper
-      detection surfacing as an error (not "locked").
+- [x] **Tests.** `tests/` covers the keystore, import, rotation, seal /
+      unseal, tamper detection, WKD hashing (draft-koch vector) and the
+      WKD user-ID check. Still untested: `main.ts` (UI) and `saveBackup`
+      (needs the Tauri shell).
 - [ ] **Formatter/linter** (prettier + eslint or biome) wired into CI, so
       CONTRIBUTING can promise it again.
 - [ ] **Issue / PR templates**, `CODEOWNERS`.

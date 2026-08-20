@@ -11,6 +11,8 @@
   `object-src`/`base-uri`/`form-action 'none'`.
 - Unseal now reports a tampered or malformed message as such instead of
   asking for a passphrase again.
+- Test suite (`npm test`): 20 vitest cases over the keystore and WKD,
+  run in CI.
 - OpenPGP.js is built as its own chunk; `THIRD-PARTY-NOTICES.md` lists
   component licenses (FOSS preflight). Dependabot and an `npm audit` /
   `cargo audit` CI job added; ROADMAP and PARITY moved under `docs/`.
