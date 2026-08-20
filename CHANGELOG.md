@@ -10,7 +10,16 @@
   shell talks to the network only through the Rust http plugin — and gains
   `object-src`/`base-uri`/`form-action 'none'`.
 - Unseal now reports a tampered or malformed message as such instead of
-  asking for a passphrase again.
+  asking for a passphrase again — including when the right key is already
+  unlocked and still cannot open it.
+- Import: a cleartext key must be locked with a passphrase of at least 12
+  characters; the imported key's real creation date is kept; re-importing
+  the active key no longer retires a copy of itself.
+- WKD redirects that land on plain HTTP are refused.
+- Toolbar Backup reports write failures in the status line instead of
+  staying silent.
+- Releases fail rather than publish unsigned when the signing key is
+  missing. README/SECURITY wording tightened to what the code does.
 - Releases now also publish `SHA256SUMS` (+ clearsigned `.asc`) and a
   `latest.json` manifest for download pages; `docs/DISTRIBUTION.md`
   describes the GitHub + direct-download model.

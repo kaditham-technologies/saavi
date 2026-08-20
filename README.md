@@ -24,11 +24,11 @@ Mail if you have it.
 - **Keys are generated on your device** (OpenPGP.js, OS-grade randomness)
   and never leave it, except as a passphrase-locked backup file you
   download yourself.
-- **The keystore is encrypted at rest.** Private keys are stored armored
-  and locked with your passphrase (OpenPGP S2K); unlocked keys exist only
-  in process memory, per session.
-- **Only public keys ever travel** — outbound WKD lookups fetch other
-  people's public keys; optional publishing sends yours.
+- **Private keys are passphrase-locked at rest** (OpenPGP S2K, armored);
+  addresses and public keys sit beside them in the clear. Unlocked keys
+  exist only in process memory, per session.
+- **Only public keys ever travel** — the app's sole network use is
+  fetching other people's public keys over WKD. Nothing is uploaded.
 - **What Saavi cannot protect against:** a compromised operating system,
   or someone with your passphrase and your device. There is no key escrow
   and no recovery; the backup file and passphrase are the whole story.

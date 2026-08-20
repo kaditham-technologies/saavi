@@ -124,8 +124,12 @@ $('act-new').addEventListener('click', () => openModal('generate'));
 $('act-import').addEventListener('click', () => openModal('import'));
 $('act-backup').addEventListener('click', async () => {
   if (!sel) return;
-  const path = await pgp.saveBackup(sel.email, sel.fpr).catch(() => null);
-  if (path !== null) $('status').textContent = path ? `Backup saved to ${path}` : 'Backup downloaded.';
+  try {
+    const path = await pgp.saveBackup(sel.email, sel.fpr);
+    if (path !== null) $('status').textContent = path ? `Backup saved to ${path}` : 'Backup downloaded.';
+  } catch (e2) {
+    $('status').textContent = `Backup NOT saved: ${e2 instanceof Error ? e2.message : String(e2)}`;
+  }
 });
 $('act-delete').addEventListener('click', async () => {
   if (!sel || sel.isActive) return;
@@ -326,10 +330,14 @@ $('seal-dec').addEventListener('click', async () => {
       }
       for (const email of ringAddresses()) {
         const need = await pgp.neededKeyFor(email, text).catch(() => null);
-        if (need) {
-          openModal('unlock', { email, fingerprint: need.fingerprint, then: () => void attempt() });
-          return;
+        if (!need) continue;
+        if (need.unlocked) {
+          // The right key is already open and still cannot read this —
+          // a damaged message, not a passphrase problem. Don't loop.
+          return sealFail(`This message names the key for ${email}, but that key cannot open it. The message may be damaged.`);
         }
+        openModal('unlock', { email, fingerprint: need.fingerprint, then: () => void attempt() });
+        return;
       }
       sealFail('None of the keys on this device fit this message.');
     }

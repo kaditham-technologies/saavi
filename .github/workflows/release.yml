@@ -29,12 +29,13 @@ jobs:
           if ! grep -q . notes.md; then
             echo "no CHANGELOG.md section for $ver" >&2; exit 1
           fi
-          if [ -n "$GPG_SIGNING_KEY" ]; then
-            printf '%s' "$GPG_SIGNING_KEY" | gpg --batch --import
-            sed "s/{TAG}/$GITHUB_REF_NAME/" .github/release-verify.md > verify.txt
-            gpg --batch --yes --clearsign --output verify.txt.asc verify.txt
-            { echo; echo '## Verify this release'; echo; echo '```text'; cat verify.txt.asc; echo '```'; } >> notes.md
+          if [ -z "$GPG_SIGNING_KEY" ]; then
+            echo "::error::GPG_SIGNING_KEY secret not set — every release must be signed" >&2; exit 1
           fi
+          printf '%s' "$GPG_SIGNING_KEY" | gpg --batch --import
+          sed "s/{TAG}/$GITHUB_REF_NAME/" .github/release-verify.md > verify.txt
+          gpg --batch --yes --clearsign --output verify.txt.asc verify.txt
+          { echo; echo '## Verify this release'; echo; echo '```text'; cat verify.txt.asc; echo '```'; } >> notes.md
           { echo 'body<<NOTES_EOF'; cat notes.md; echo 'NOTES_EOF'; } >> "$GITHUB_OUTPUT"
       - uses: tauri-apps/tauri-action@v0
         env:
@@ -50,8 +51,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$GPG_SIGNING_KEY" ]; then
-            echo "GPG_SIGNING_KEY secret not set; skipping signing"
-            exit 0
+            echo "::error::GPG_SIGNING_KEY secret not set — refusing to publish an unsigned release" >&2
+            gh release delete "$GITHUB_REF_NAME" --yes || true
+            exit 1
           fi
           printf '%s' "$GPG_SIGNING_KEY" | gpg --batch --import
           shopt -s nullglob
@@ -76,10 +78,7 @@ jobs:
           ver="${GITHUB_REF_NAME#v}"
           date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           shopt -s nullglob
-          cd out 2>/dev/null || { mkdir -p out; cd out
-            for f in ../src-tauri/target/release/bundle/deb/*.deb \
-                     ../src-tauri/target/release/bundle/appimage/*.AppImage; do cp "$f" .; done
-            sha256sum *.deb *.AppImage > SHA256SUMS; }
+          cd out
           {
             printf '{\n  "name": "Saavi",\n  "version": "%s",\n  "tag": "%s",\n  "published": "%s",\n' "$ver" "$GITHUB_REF_NAME" "$date"
             printf '  "release_url": "https://github.com/%s/releases/tag/%s",\n' "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"

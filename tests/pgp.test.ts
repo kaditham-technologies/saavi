@@ -161,3 +161,23 @@ describe('normalizeKeyArmor', () => {
     expect(pgp.normalizeKeyArmor('no armor here')).toBe('no armor here');
   });
 });
+
+describe('review follow-ups', () => {
+  it('refuses to lock a cleartext import with a short passphrase', async () => {
+    const { privateKey } = await openpgp.generateKey({
+      userIDs: [{ email: ME }], type: 'ecc', curve: 'curve25519Legacy', format: 'armored',
+    });
+    await expect(pgp.importKey(ME, privateKey, 'short')).rejects.toThrow(/at least 12/);
+    expect(pgp.keysFor(ME)).toBeNull();
+  });
+
+  it('keeps the real creation date on import and does not retire a re-imported active key', async () => {
+    const rec = await pgp.generateKeys(ME, 'Me', PASS);
+    const created = (await openpgp.readKey({ armoredKey: rec.publicKey })).getCreationTime().toISOString();
+    await pgp.importKey(ME, rec.privateKey, PASS);
+    const ring = pgp.ringFor(ME)!;
+    expect(ring.active.created).toBe(created);
+    expect(ring.retired).toHaveLength(0);
+    expect(await pgp.listKeys(ME)).toHaveLength(1);
+  });
+});
