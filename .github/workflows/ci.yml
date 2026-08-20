@@ -49,7 +49,7 @@ jobs:
       - run: npm ci
       - run: cargo install tauri-cli --version '^2' --locked
       - run: cargo tauri build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: saavi-linux
           path: |
@@ -82,7 +82,7 @@ jobs:
       - run: npm ci
       - run: cargo install tauri-cli --version '^2' --locked
       - run: cargo tauri build ${{ matrix.args }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: saavi-${{ matrix.os }}
           path: ${{ matrix.path }}
