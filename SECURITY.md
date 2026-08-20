@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Email **security@kaditham.ie** (a PGP key for it is discoverable via WKD).
+Email **security@kaditham.me** (a PGP key for it is discoverable via WKD).
 Please do not open public issues for vulnerabilities. We aim to respond
 within 72 hours and to credit reporters unless they prefer otherwise.
 
@@ -34,7 +34,7 @@ no extension ecosystem.
   (Curve25519 default, RSA-4096 for legacy interop). No other crypto
   implementations are accepted into the codebase.
 - Randomness: the platform CSPRNG via WebCrypto.
-- Post-quantum: tracked in [ROADMAP.md](ROADMAP.md) — hybrid ML-KEM
+- Post-quantum: tracked in [docs/ROADMAP.md](docs/ROADMAP.md) — hybrid ML-KEM
   composites will be offered when OpenPGP.js ships the
   draft-ietf-openpgp-pqc algorithms, at which point key rotation inside
   Saavi is the migration path.

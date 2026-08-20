@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Security: WKD results are accepted only when the fetched key carries a
+  user ID for the exact address looked up (a domain's WKD server could
+  otherwise hand back a key for someone else), and responses over 1 MiB
+  are refused.
+- Security: the webview CSP no longer allows `connect-src https:` — the
+  shell talks to the network only through the Rust http plugin — and gains
+  `object-src`/`base-uri`/`form-action 'none'`.
+- Unseal now reports a tampered or malformed message as such instead of
+  asking for a passphrase again.
+- OpenPGP.js is built as its own chunk; `THIRD-PARTY-NOTICES.md` lists
+  component licenses (FOSS preflight). Dependabot and an `npm audit` /
+  `cargo audit` CI job added; ROADMAP and PARITY moved under `docs/`.
+
 ## 0.1.1 — 2026-08-18
 
 - Fixed: the whole UI rendered at once — keyring, sealer, and the key

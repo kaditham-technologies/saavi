@@ -62,4 +62,13 @@ cargo tauri build        # or: cargo tauri dev
 MIT — see [LICENSE](LICENSE). Crypto policy: OpenPGP operations go through
 [OpenPGP.js](https://github.com/openpgpjs/openpgpjs) only; PRs adding
 bespoke or additional crypto implementations will be declined
-(see [CONTRIBUTING](CONTRIBUTING.md)).
+(see [CONTRIBUTING](CONTRIBUTING.md)). Third-party licenses, including
+OpenPGP.js (LGPL-3.0-or-later), are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+## More
+
+- [CHANGELOG](CHANGELOG.md) · [Roadmap](docs/ROADMAP.md) · [Parity with Kaditham Mail](docs/PARITY.md)
+- [Contributing](CONTRIBUTING.md) · [TODO / hardening backlog](TODO.md) · [Security policy](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md)
+- Release verification: every release carries a clearsigned note and detached
+  `.sig` files — see the "Verify this release" section of any release.
