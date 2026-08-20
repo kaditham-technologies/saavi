@@ -11,6 +11,9 @@
   `object-src`/`base-uri`/`form-action 'none'`.
 - Unseal now reports a tampered or malformed message as such instead of
   asking for a passphrase again.
+- Releases now also publish `SHA256SUMS` (+ clearsigned `.asc`) and a
+  `latest.json` manifest for download pages; `docs/DISTRIBUTION.md`
+  describes the GitHub + direct-download model.
 - Test suite (`npm test`): 20 vitest cases over the keystore and WKD,
   run in CI.
 - OpenPGP.js is built as its own chunk; `THIRD-PARTY-NOTICES.md` lists

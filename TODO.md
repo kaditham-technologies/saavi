@@ -45,3 +45,8 @@ should get a CHANGELOG line.
 - [ ] **Reproducible builds** (ROADMAP #6): publish hashes a third party
       can regenerate.
 - [ ] **macOS / Windows release targets** once signing identities exist.
+- [ ] **Download page** on the Kaditham site consuming `latest.json` and
+      mirroring assets (docs/DISTRIBUTION.md). Template for Mail/Calendar.
+- [ ] **First tagged release after this preflight** to exercise the new
+      `SHA256SUMS` / `latest.json` steps end-to-end (they are untested
+      until a tag runs).

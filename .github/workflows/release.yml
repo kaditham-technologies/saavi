@@ -55,9 +55,52 @@ jobs:
           fi
           printf '%s' "$GPG_SIGNING_KEY" | gpg --batch --import
           shopt -s nullglob
+          mkdir -p out
           for f in src-tauri/target/release/bundle/deb/*.deb \
                    src-tauri/target/release/bundle/appimage/*.AppImage; do
-            gpg --batch --yes --detach-sign --output "$(basename "$f").sig" "$f"
+            cp "$f" out/
+            gpg --batch --yes --detach-sign --output "out/$(basename "$f").sig" "$f"
           done
-          gpg --batch --export --armor > saavi_pubkey.gpg
-          gh release upload "$GITHUB_REF_NAME" ./*.sig saavi_pubkey.gpg
+          gpg --batch --export --armor > out/saavi_pubkey.gpg
+          cd out
+          sha256sum *.deb *.AppImage > SHA256SUMS
+          gpg --batch --yes --clearsign --output SHA256SUMS.asc SHA256SUMS
+          gh release upload "$GITHUB_REF_NAME" ./*.sig saavi_pubkey.gpg SHA256SUMS SHA256SUMS.asc
+      - name: Download manifest (latest.json)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A machine-readable index of this release for download pages
+          # (kaditham.ie/saavi and siblings) — see docs/DISTRIBUTION.md.
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          ver="${GITHUB_REF_NAME#v}"
+          date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          shopt -s nullglob
+          cd out 2>/dev/null || { mkdir -p out; cd out
+            for f in ../src-tauri/target/release/bundle/deb/*.deb \
+                     ../src-tauri/target/release/bundle/appimage/*.AppImage; do cp "$f" .; done
+            sha256sum *.deb *.AppImage > SHA256SUMS; }
+          {
+            printf '{\n  "name": "Saavi",\n  "version": "%s",\n  "tag": "%s",\n  "published": "%s",\n' "$ver" "$GITHUB_REF_NAME" "$date"
+            printf '  "release_url": "https://github.com/%s/releases/tag/%s",\n' "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
+            printf '  "signing_key": { "url": "%s/saavi_pubkey.gpg", "fingerprint": "DCF5 773B 84E9 AABA 785F D5A8 4D2A ECE6 8A95 3F46" },\n' "$base"
+            printf '  "checksums": { "url": "%s/SHA256SUMS", "signed": "%s/SHA256SUMS.asc" },\n' "$base" "$base"
+            printf '  "assets": [\n'
+            first=1
+            while read -r sum name; do
+              case "$name" in
+                *.deb)      platform=linux; format=deb ;;
+                *.AppImage) platform=linux; format=appimage ;;
+                *.dmg)      platform=macos; format=dmg ;;
+                *.msi)      platform=windows; format=msi ;;
+                *)          platform=unknown; format="${name##*.}" ;;
+              esac
+              arch=x86_64; case "$name" in *aarch64*|*arm64*) arch=aarch64 ;; esac
+              [ $first = 1 ] || printf ',\n'; first=0
+              printf '    { "name": "%s", "platform": "%s", "arch": "%s", "format": "%s", "url": "%s/%s", "sig": "%s/%s.sig", "sha256": "%s" }' \
+                "$name" "$platform" "$arch" "$format" "$base" "$name" "$base" "$name" "$sum"
+            done < SHA256SUMS
+            printf '\n  ]\n}\n'
+          } > latest.json
+          python3 -m json.tool latest.json > /dev/null
+          gh release upload "$GITHUB_REF_NAME" latest.json --clobber
