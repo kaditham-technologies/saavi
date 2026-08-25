@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **MIME layer for PGP/MIME letters** (`src/mime.ts`): builds and parses the
+  inner MIME entity that gets encrypted — text + HTML alternatives,
+  attachments, and the real Subject as a protected header
+  (`protected-headers="v1"`, the Thunderbird/LAMPS convention) so the
+  visible subject can stay "...". Base64 leaf parts throughout; the parser
+  also reads foreign mail (quoted-printable, RFC 2047/2231 filenames,
+  LF-only input). `buildEncryptedMessage` assembles the complete outer
+  RFC 5322 + RFC 3156 `multipart/encrypted` message around an armored
+  ciphertext — the exact wire bytes (webmail imports and submits them; a
+  desktop export can write them as .eml).
+- **GnuPG interop tests** (`tests/interop.test.ts`, skipped when no `gpg` on
+  PATH): real GnuPG decrypts our sealed MIME letters and reports GOODSIG on
+  our signatures; we decrypt GnuPG's ciphertext. Documented finding: OpenPGP
+  text-mode literals canonicalise line endings, so nothing may depend on
+  CRLF surviving decryption — the MIME parser is line-ending-agnostic.
 - Sealer: the To field accepts addresses separated by commas, semicolons,
   spaces or new lines (before, anything but a comma made one unusable
   address). When no key is found the message now says why, per address:
