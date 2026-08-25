@@ -28,7 +28,13 @@ function gpgAvailable(): boolean {
   }
 }
 
-describe.skipIf(!gpgAvailable())('GnuPG interop', () => {
+// Windows CI ships an MSYS gpg that mangles a native GNUPGHOME path
+// (C:\… turns into /d/a/…/C:\…), so the throwaway keyring is never found.
+// The interop guarantee is identical on every OS; proving it on Linux and
+// macOS is enough, and not worth an unportable keyring dance on Windows.
+const interop = gpgAvailable() && process.platform !== 'win32';
+
+describe.skipIf(!interop)('GnuPG interop', () => {
   let home: string;
   const gpg = (args: string[], opts: ExecFileSyncOptions = {}) =>
     execFileSync('gpg', ['--batch', '--yes', '--pinentry-mode', 'loopback', ...args], {
@@ -66,8 +72,12 @@ describe.skipIf(!gpgAvailable())('GnuPG interop', () => {
     const parsed = mime.parseMimeEntity(plain);
     expect(parsed.subject).toBe('interop subject');
     expect([...parsed.attachments[0].bytes]).toEqual([7, 8, 9]);
-    // signature verdict via machine-readable status lines
-    const status = String(gpg(['--passphrase', PASS, '--status-fd', '1', '-o', '/dev/null', '--decrypt'], { input: armored, encoding: 'utf8' }));
+    // signature verdict via machine-readable status lines. The plaintext is
+    // written to a throwaway file in `home`, never /dev/null: gpg writes its
+    // output through a sibling "<out>.part" temp, and /dev/null.part is not
+    // creatable on the CI runners (Permission denied), which failed the whole
+    // step even though decryption and the signature check both succeeded.
+    const status = String(gpg(['--passphrase', PASS, '--status-fd', '1', '-o', join(home, 'verify.out'), '--decrypt'], { input: armored, encoding: 'utf8' }));
     expect(status).toMatch(/GOODSIG/);
   });
 
