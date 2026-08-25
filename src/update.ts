@@ -6,14 +6,17 @@
 
 export const MANIFEST_URL = 'https://kaditham.ie/wp-content/uploads/saavi/latest.json';
 export const DOWNLOAD_PAGE = 'https://kaditham.ie/saavi/';
-const OPT_KEY = 'saavi-update-check'; // 'on' | 'off' (absent = off)
+const OPT_KEY = 'saavi-update-check'; // 'on' | 'off' (absent = on, the default)
 const LAST_KEY = 'saavi-update-last'; // YYYY-MM-DD of the last check
 const SEEN_KEY = 'saavi-update-seen'; // newest version the user was told about
+const DISMISS_KEY = 'saavi-update-dismissed'; // version whose banner was dismissed
 
 export interface UpdateInfo { version: string; published: string | null; }
 
+// On by default: only an explicit opt-out ('off') disables the daily check.
+// The one network effect is a single manifest GET; installing stays manual.
 export function enabled(): boolean {
-  return localStorage.getItem(OPT_KEY) === 'on';
+  return localStorage.getItem(OPT_KEY) !== 'off';
 }
 export function setEnabled(on: boolean): void {
   localStorage.setItem(OPT_KEY, on ? 'on' : 'off');
@@ -64,6 +67,11 @@ export async function check(current: string, force = false): Promise<UpdateInfo 
 
 export function markSeen(version: string): void { localStorage.setItem(SEEN_KEY, version); }
 export function seen(): string | null { return localStorage.getItem(SEEN_KEY); }
+
+// Banner dismissal is per-version: dismissing 0.3.0 silences its banner, but a
+// later 0.4.0 shows again.
+export function dismiss(version: string): void { localStorage.setItem(DISMISS_KEY, version); }
+export function dismissed(): string | null { return localStorage.getItem(DISMISS_KEY); }
 
 /** Open the download page in the system browser (Tauri) or a new tab. */
 export async function openDownloadPage(): Promise<void> {

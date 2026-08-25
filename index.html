@@ -24,6 +24,16 @@
       </nav>
     </header>
 
+    <!-- Update notification: a prominent bar, shown only when the opt-in
+         check finds a newer signed release. Installing is still a manual,
+         verified download. -->
+    <div id="update-banner" class="update-banner" role="status" aria-live="polite" hidden>
+      <span class="ub-dot" aria-hidden="true"></span>
+      <span id="update-banner-text" class="ub-text"></span>
+      <button type="button" id="update-banner-get" class="ub-get">Download update</button>
+      <button type="button" id="update-banner-x" class="ub-x" aria-label="Dismiss this update notice">✕</button>
+    </div>
+
     <!-- −k : the keyring -->
     <section id="view-keys" class="view">
       <div class="toolbar">

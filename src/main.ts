@@ -122,25 +122,41 @@ for (const ev of ['pointerdown', 'keydown', 'mousemove', 'wheel', 'focus'] as co
 }
 armIdle();
 
-// ---------- update indicator (opt-in, check-only) ----------
+// ---------- update indicator (on by default, check-only) ----------
 const updateOpt = $('update-opt') as HTMLInputElement;
 const updatePill = $('update-pill') as HTMLButtonElement;
+const updateBanner = $('update-banner');
+const updateBannerText = $('update-banner-text');
+let offeredVersion: string | null = null;
 async function runUpdateCheck(force = false): Promise<void> {
   if (!update.enabled()) return;
   const info = await update.check(__APP_VERSION__, force);
   if (!info) { if (force) status(`Saavi ${__APP_VERSION__} is the latest version.`); return; }
+  offeredVersion = info.version;
   updatePill.textContent = `Saavi ${info.version} available`;
   updatePill.title = `You have ${__APP_VERSION__}. Opens the download page; install it the usual way and verify the signature.`;
   updatePill.hidden = false;
+  // The loud banner, unless the user has already dismissed this exact version.
+  if (update.dismissed() !== info.version) {
+    updateBannerText.textContent =
+      `Saavi ${info.version} is available — you have ${__APP_VERSION__}.`;
+    updateBanner.hidden = false;
+  }
   if (update.seen() !== info.version) { update.markSeen(info.version); status(`Saavi ${info.version} is available — see the download page.`); }
 }
 updateOpt.checked = update.enabled();
 updateOpt.addEventListener('change', () => {
   update.setEnabled(updateOpt.checked);
   if (updateOpt.checked) void runUpdateCheck(true);
-  else updatePill.hidden = true;
+  else { updatePill.hidden = true; updateBanner.hidden = true; }
 });
-updatePill.addEventListener('click', () => { void update.openDownloadPage().catch((e) => status(`Could not open the browser: ${errMsg(e)}`)); });
+const openDownload = () => { void update.openDownloadPage().catch((e) => status(`Could not open the browser: ${errMsg(e)}`)); };
+updatePill.addEventListener('click', openDownload);
+$('update-banner-get').addEventListener('click', openDownload);
+$('update-banner-x').addEventListener('click', () => {
+  updateBanner.hidden = true;
+  if (offeredVersion) update.dismiss(offeredVersion); // the pill stays as the quiet reminder
+});
 void runUpdateCheck();
 
 // ---------- files through the shell ----------
