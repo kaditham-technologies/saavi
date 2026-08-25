@@ -142,8 +142,30 @@ fn run(args: &[&str], stdin: &[u8]) -> Result<Run, String> {
 }
 
 fn human(r: &Run, fallback: &str) -> String {
-    // Last non-status line is usually the actionable one.
+    // Prefer a line that talks about the failure — gpg often ENDS stderr
+    // with an unrelated "WARNING: this key is not certified…", which must
+    // not be presented as the reason something failed.
+    if let Some(m) = r
+        .messages
+        .iter()
+        .rev()
+        .find(|m| { let l = m.to_lowercase(); l.contains("error") || l.contains("failed") || l.contains("invalid") })
+    {
+        return m.clone();
+    }
     r.messages.last().cloned().unwrap_or_else(|| fallback.to_string())
+}
+
+/// Native confirmation for actions that change state in the user's REAL
+/// ~/.gnupg. Same spirit as the file-path rule: the webview alone must not
+/// be able to poison the system keyring (which git, pass, mutt also read).
+fn confirm_native(app: &tauri::AppHandle, title: &str, message: &str) -> bool {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    app.dialog()
+        .message(message)
+        .title(title)
+        .buttons(MessageDialogButtons::OkCancelCustom("Continue".into(), "Cancel".into()))
+        .blocking_show()
 }
 
 // ---------------------------------------------------------------- validation
@@ -573,7 +595,11 @@ pub struct ImportOutcome {
 }
 
 #[tauri::command]
-pub async fn gpg_import(armored: String) -> Result<ImportOutcome, String> {
+pub async fn gpg_import(app: tauri::AppHandle, armored: String) -> Result<ImportOutcome, String> {
+    if !confirm_native(&app, "Import into GnuPG keyring",
+        "Add the pasted key(s) to your system GnuPG keyring (~/.gnupg)?\n\nEvery application that uses GnuPG will see them.") {
+        return Err("Cancelled.".into());
+    }
     blocking(move || {
         let r = run(&["--import"], armored.as_bytes())?;
         let mut out = ImportOutcome::default();
@@ -683,7 +709,10 @@ pub async fn gpg_decrypt(armored: String) -> Result<DecryptOutcome, String> {
             .filter_map(|s| s.strip_prefix("ENC_TO ").and_then(|x| x.split(' ').next()).map(str::to_string))
             .collect();
         let signed_only = encrypted_to.is_empty() && !signatures.is_empty();
-        let okay = r.status.iter().any(|s| s == "DECRYPTION_OKAY") || signed_only;
+        // Belt: DECRYPTION_FAILED alongside DECRYPTION_OKAY (partial/multi-
+        // packet failures) must count as failure, never success.
+        let failed = r.status.iter().any(|s| s.starts_with("DECRYPTION_FAILED"));
+        let okay = (!failed && r.status.iter().any(|s| s == "DECRYPTION_OKAY")) || signed_only;
         if !okay {
             let msg = if r.status.iter().any(|s| s.starts_with("NO_SECKEY")) {
                 "None of the secret keys in the GnuPG keyring can open this message.".to_string()
@@ -798,7 +827,12 @@ pub async fn gpg_revoke_uid(fingerprint: String, uid: String) -> Result<(), Stri
 
 /// Owner trust, gpg's scale: 2 unknown, 3 never, 4 marginal, 5 full, 6 ultimate.
 #[tauri::command]
-pub async fn gpg_set_ownertrust(fingerprint: String, level: u8) -> Result<(), String> {
+pub async fn gpg_set_ownertrust(app: tauri::AppHandle, fingerprint: String, level: u8) -> Result<(), String> {
+    let label = match level { 3 => "never trust", 4 => "marginal trust", 5 => "full trust", 6 => "ULTIMATE trust", _ => "unknown trust" };
+    if !confirm_native(&app, "Change owner trust",
+        &format!("Set owner trust of key\n{fingerprint}\nto {label} in your system GnuPG keyring?\n\nTrust decisions affect every application that uses GnuPG.")) {
+        return Err("Cancelled.".into());
+    }
     blocking(move || {
         let fpr = check_fpr(&fingerprint)?;
         if !(2..=6).contains(&level) {
@@ -832,7 +866,11 @@ pub async fn gpg_sign_key(fingerprint: String, signer: String, local: bool) -> R
 
 /// Fetch a key by fingerprint from keys.openpgp.org (verified-email keyserver).
 #[tauri::command]
-pub async fn gpg_recv_key(fingerprint: String) -> Result<ImportOutcome, String> {
+pub async fn gpg_recv_key(app: tauri::AppHandle, fingerprint: String) -> Result<ImportOutcome, String> {
+    if !confirm_native(&app, "Fetch key from keyserver",
+        &format!("Fetch the key\n{fingerprint}\nfrom keys.openpgp.org and add it to your system GnuPG keyring?")) {
+        return Err("Cancelled.".into());
+    }
     blocking(move || {
         let fpr = check_fpr(&fingerprint)?;
         let r = run(&["--keyserver", "hkps://keys.openpgp.org", "--recv-keys", "--", &fpr], b"")?;
@@ -974,7 +1012,8 @@ pub async fn gpg_decrypt_file(app: tauri::AppHandle, input: Option<String>) -> R
         };
         let r = run(&["--yes", "--output", &outp.to_string_lossy(), "--decrypt", "--", &inp.to_string_lossy()], b"")?;
         let signatures = parse_signatures(&r.status);
-        let okay = r.status.iter().any(|s| s == "DECRYPTION_OKAY");
+        let failed = r.status.iter().any(|s| s.starts_with("DECRYPTION_FAILED"));
+        let okay = !failed && r.status.iter().any(|s| s == "DECRYPTION_OKAY");
         if !okay {
             return Err(if r.status.iter().any(|s| s.starts_with("NO_SECKEY")) {
                 "None of the secret keys in the GnuPG keyring can open this file.".to_string()
@@ -990,7 +1029,11 @@ pub async fn gpg_decrypt_file(app: tauri::AppHandle, input: Option<String>) -> R
 /// Delete a PUBLIC key. Keys that have a secret part are refused here on
 /// purpose: removing a secret key is a gpg/Kleopatra-level decision.
 #[tauri::command]
-pub async fn gpg_delete_public(fingerprint: String) -> Result<(), String> {
+pub async fn gpg_delete_public(app: tauri::AppHandle, fingerprint: String) -> Result<(), String> {
+    if !confirm_native(&app, "Delete public key",
+        &format!("Delete the public key\n{fingerprint}\nfrom your system GnuPG keyring?")) {
+        return Err("Cancelled.".into());
+    }
     blocking(move || {
         let fpr = check_fpr(&fingerprint)?;
         let list = run(&["--with-colons", "--fixed-list-mode", "--with-fingerprint", "--with-secret", "--list-keys", "--", &fpr], b"")?;

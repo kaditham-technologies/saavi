@@ -16,12 +16,11 @@ should get a CHANGELOG line.
       fixed; a setting can come if anyone asks.
 - [x] **Signing is silent.** A "Sign as" choice in the sealer; sealing
       signs only when a key is chosen, and the result label says so.
-- [ ] **Signature verification on unseal (Saavi store, encrypted+signed).**
-      Clearsigned messages are verified in both keyrings and the system
-      keyring shows gpg's verdict for encrypted messages. Still open: the
-      Saavi store does not look up the signer's key when an *encrypted*
-      message is also signed — pass candidates (own keys, To field, WKD)
-      to `decryptText` and show the verdict like `verifyText` does.
+- [x] **Signature verification on unseal (Saavi store, encrypted+signed).**
+      `decryptText`/`decryptBytes` classify all signatures against candidates
+      (own keys, To field, WKD/VKS, plus a by-key-id VKS lookup for an unknown
+      signer) and the unseal shows the same verdicts as Verify. Trust badge is
+      a fingerprint comparison, not a UID substring (audit M2).
 - [ ] **Pin GitHub Actions to commit SHAs** (`tauri-action@v0`,
       `checkout@v4`, `setup-node@v4`, `rust-toolchain@stable`,
       `audit-check@v2`). Dependabot now tracks them, so pins stay fresh.

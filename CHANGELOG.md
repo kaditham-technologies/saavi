@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### Security (external audit + review response)
+
+- **Signature verdicts on every unseal, both keyrings.** `decryptText` and
+  `decryptBytes` now classify EVERY signature (good / bad / expired / revoked
+  / unknown-key / unsigned) against candidate keys and return a worst-first
+  summary — a bad signature can never hide behind a good one. The Saavi-store
+  unseal shows the same Unsigned / Signed-by / trusted verdicts the system
+  GnuPG path always did; an unknown signer is looked up by key ID on
+  keys.openpgp.org (as an untrusted candidate — it can name a signer, never
+  vouch for one). *(audit M1)*
+- **"Your key" is a fingerprint comparison, never a UID substring.** The
+  Verify and unseal trust badges compare the signer's fingerprint against
+  this device's keys; a stranger's key whose user ID embeds your address can
+  no longer render as "trusted key". *(audit M2)*
+- **Corrupt store records are quarantined, not silently dropped.** A ring
+  that fails to parse is parked under a quarantine key and surfaced as a loud
+  alert in the key table, instead of the key simply vanishing. *(audit M3)*
+- **Imported keys are re-locked with our S2K.** A cleartext or weak-S2K
+  export is re-encrypted under the current passphrase on import. *(audit I3)*
+- **System-keyring trust changes now confirm natively.** `gpg_import`,
+  `gpg_set_ownertrust`, `gpg_recv_key` and `gpg_delete_public` show a native
+  OK/Cancel dialog naming the fingerprint before touching `~/.gnupg`, so a
+  webview alone cannot poison the keyring every other tool reads. *(audit L1)*
+- **Keychain keys unlock lazily.** Remembered keys are no longer unlocked on
+  every key-list refresh (which undid Lock and the idle timer); the table
+  shows "remembered" from a keychain probe, and a key is decrypted only when
+  actually used. A hidden window now also auto-locks. *(audit L2, L9)*
+- **Decryption belt:** `DECRYPTION_FAILED` alongside `DECRYPTION_OKAY` now
+  counts as failure. `human()` prefers an error/failure line over gpg's
+  trailing "not certified" warning. Locked-key detection is structural (key
+  IDs) with the error-string match only as a fallback. *(audit L4, L8, hardening)*
+- **Encrypt-to-self in the sealer** so the sender keeps a readable record of
+  what they sent. *(audit L6)*
+- **WKD/VKS hardening:** the domain is validated before URL construction, and
+  the size cap is enforced WHILE streaming (a chunked response with no
+  Content-Length can no longer defeat it). The update manifest read is
+  capped the same way. *(audit L7, 04)*
+
 - **MIME layer for PGP/MIME letters** (`src/mime.ts`): builds and parses the
   inner MIME entity that gets encrypted — text + HTML alternatives,
   attachments, and the real Subject as a protected header

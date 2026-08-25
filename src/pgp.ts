@@ -53,6 +53,32 @@ export function clearSession(): void {
   activeByEmail.clear();
 }
 
+/** Corruption alarms — a damaged store record must never just vanish. */
+export interface StoreAlert { email: string; at: string; quarantineKey: string }
+
+const ALERTS_KEY = STORE_PREFIX + 'alerts';
+
+/** Records the store could not read: parked, never destroyed, and flagged. */
+export function storeAlerts(): StoreAlert[] {
+  try { return JSON.parse(localStorage.getItem(ALERTS_KEY) ?? '[]'); } catch { return []; }
+}
+
+export function dismissStoreAlert(quarantineKey: string): void {
+  localStorage.setItem(ALERTS_KEY, JSON.stringify(storeAlerts().filter((a) => a.quarantineKey !== quarantineKey)));
+}
+
+/** A record that fails to parse is PARKED under a quarantine key and flagged
+ *  — key material is the one thing this store must never silently drop. */
+function quarantine(email: string, raw: string): null {
+  const qk = `${STORE_PREFIX}corrupt-${email}-${Date.now()}`;
+  try {
+    localStorage.setItem(qk, raw);
+    localStorage.removeItem(STORE_PREFIX + email);
+    localStorage.setItem(ALERTS_KEY, JSON.stringify([...storeAlerts(), { email, at: new Date().toISOString(), quarantineKey: qk }]));
+  } catch { /* storage full/unavailable — leave the record in place */ }
+  return null;
+}
+
 function load(email: string): KeyRing | null {
   const raw = localStorage.getItem(STORE_PREFIX + email.toLowerCase());
   if (!raw) return null;
@@ -65,9 +91,9 @@ function load(email: string): KeyRing | null {
       save(email, ring);
       return ring;
     }
-    return null;
+    return quarantine(email.toLowerCase(), raw);
   } catch {
-    return null;
+    return quarantine(email.toLowerCase(), raw);
   }
 }
 
@@ -162,7 +188,10 @@ export async function importKey(email: string, armoredSource: string, passphrase
     } catch {
       throw new Error('That passphrase does not unlock this key.');
     }
-    storedArmor = block[0];
+    // Re-lock with OUR S2K rather than keeping whatever the export used —
+    // old gpg exports can carry a far weaker S2K, and the passphrase is in
+    // hand at exactly this moment.
+    storedArmor = (await openpgp.encryptKey({ privateKey: unlocked, passphrase })).armor();
   }
   const rec: KeyRecord = {
     publicKey: unlocked.toPublic().armor(),
@@ -250,24 +279,107 @@ export function normalizeKeyArmor(src: string): string {
   return `-----BEGIN PGP PUBLIC KEY BLOCK-----${body}-----END PGP PUBLIC KEY BLOCK-----`;
 }
 
+export type SigStatus = 'good' | 'bad' | 'expired' | 'revoked' | 'unknown-key' | 'unsigned';
+
+export interface SigVerdict {
+  status: SigStatus;
+  /** Display-only — a user ID is attacker-chosen text. Trust decisions
+   *  compare `fingerprint` against known keys, never this string. */
+  signedBy: string | null;
+  fingerprint: string | null;   // formatted, 4-char groups
+  keyId: string;                // signer key ID, upper hex — for lookups
+}
+
 export interface DecryptResult {
   text: string;
-  signedBy: string | null;   // email of a VERIFIED signer, else null
+  /** Summary over every signature: any bad/expired/revoked outranks good
+   *  (fail loud), good outranks unknown-key. 'unsigned' = no signature. */
+  sigStatus: SigStatus;
+  signedBy: string | null;          // from the summary verdict; display-only
+  signerFingerprint: string | null; // from the summary verdict
+  signatures: SigVerdict[];         // every signature, classified
+}
+
+/** Classify EVERY signature on a decrypted/verified message against the
+ *  candidate keys. Shared by text, MIME and file unseal paths so all of
+ *  them show the same verdicts (and so the logic is unit-testable). */
+async function classifySignatures(
+  signatures: { keyID: openpgp.KeyID; verified: Promise<true> }[] | undefined,
+  candidates: openpgp.Key[]
+): Promise<SigVerdict[]> {
+  if (!signatures?.length) return [];
+  const out: SigVerdict[] = [];
+  for (const sig of signatures) {
+    const keyId = sig.keyID.toHex().toUpperCase();
+    const key = candidates.find((k) => k.getKeys().some((sk) => sk.getKeyID().equals(sig.keyID)));
+    if (!key) {
+      void sig.verified.catch(() => { /* nothing to verify against */ });
+      out.push({ status: 'unknown-key', signedBy: null, fingerprint: null, keyId });
+      continue;
+    }
+    const signedBy = key.users[0]?.userID?.email ?? null;
+    const fingerprint = fmtFpr(key.getFingerprint());
+    try {
+      await sig.verified;
+      out.push({ status: 'good', signedBy, fingerprint, keyId });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const status: SigStatus = /revoked/i.test(msg) ? 'revoked' : /expired/i.test(msg) ? 'expired' : 'bad';
+      out.push({ status, signedBy, fingerprint, keyId });
+    }
+  }
+  return out;
+}
+
+/** Worst-first summary: a bad signature must never hide behind a good one. */
+function summarize(verdicts: SigVerdict[]): { sigStatus: SigStatus; signedBy: string | null; signerFingerprint: string | null } {
+  if (!verdicts.length) return { sigStatus: 'unsigned', signedBy: null, signerFingerprint: null };
+  const order: SigStatus[] = ['bad', 'revoked', 'expired', 'good', 'unknown-key'];
+  for (const status of order) {
+    const v = verdicts.find((x) => x.status === status);
+    if (v) return { sigStatus: v.status, signedBy: v.signedBy, signerFingerprint: v.fingerprint };
+  }
+  return { sigStatus: 'unsigned', signedBy: null, signerFingerprint: null };
+}
+
+async function readVerificationKeys(src?: string | string[] | null): Promise<openpgp.Key[]> {
+  const armors = !src ? [] : Array.isArray(src) ? src : [src];
+  const keys: openpgp.Key[] = [];
+  for (const a of armors) {
+    try { keys.push(await openpgp.readKey({ armoredKey: a })); } catch { /* skip unreadable candidates */ }
+  }
+  return keys;
+}
+
+/** Structural locked check: none of the unlocked session keys can open this
+ *  message. Computed from key IDs, not from error-string sniffing (which
+ *  stays only as a fallback for hidden-recipient messages). */
+function noSessionKeyFits<T extends openpgp.MaybeStream<Uint8Array | string>>(message: openpgp.Message<T>): boolean {
+  const wanted = message.getEncryptionKeyIDs().map((id) => id.toHex().toLowerCase());
+  if (wanted.some((id) => /^0+$/.test(id))) return false;   // wildcard: must try
+  const have = new Set<string>();
+  for (const k of sessionKeys.values()) {
+    for (const sk of k.getKeys()) have.add(sk.getKeyID().toHex().toLowerCase());
+  }
+  return !wanted.some((id) => have.has(id));
 }
 
 /** Decrypt with whichever session key fits; throws Error('locked') when the
- *  needed key is on the device but not unlocked (see neededKeyFor). */
-export async function decryptText(armored: string, senderPublicKey?: string | null): Promise<DecryptResult> {
+ *  needed key is on the device but not unlocked (see neededKeyFor). Pass
+ *  candidate public keys (sender lookups, own keys) to get signature
+ *  verdicts; with no candidates a signed message reports 'unknown-key'. */
+export async function decryptText(armored: string, verifyWith?: string | string[] | null): Promise<DecryptResult> {
   if (!sessionKeys.size) throw new Error('locked');
   const message = await openpgp.readMessage({ armoredMessage: armored.trim() });
-  const verificationKeys = senderPublicKey ? [await openpgp.readKey({ armoredKey: senderPublicKey })] : undefined;
+  if (noSessionKeyFits(message)) throw new Error('locked');
+  const verificationKeys = await readVerificationKeys(verifyWith);
   let data: unknown;
   let signatures: Awaited<ReturnType<typeof openpgp.decrypt>>['signatures'] | undefined;
   try {
     ({ data, signatures } = await openpgp.decrypt({
       message,
       decryptionKeys: [...sessionKeys.values()],
-      ...(verificationKeys ? { verificationKeys } : {}),
+      ...(verificationKeys.length ? { verificationKeys } : {}),
     }));
   } catch (e) {
     // Only a missing/locked key is 'locked'. Anything else — a tampered
@@ -277,14 +389,8 @@ export async function decryptText(armored: string, senderPublicKey?: string | nu
     if (/session key|decryption key|no private key|not decrypted/i.test(msg)) throw new Error('locked');
     throw e;
   }
-  let signedBy: string | null = null;
-  if (signatures?.length && verificationKeys) {
-    try {
-      await signatures[0].verified;
-      signedBy = verificationKeys[0].users[0]?.userID?.email ?? 'verified';
-    } catch { signedBy = null; }
-  }
-  return { text: String(data), signedBy };
+  const verdicts = await classifySignatures(signatures, verificationKeys);
+  return { text: String(data), signatures: verdicts, ...summarize(verdicts) };
 }
 
 /**
@@ -442,16 +548,32 @@ export async function encryptBytes(data: Uint8Array, filename: string, armoredPu
   })) as Uint8Array;
 }
 
-/** Decrypt a binary or armored OpenPGP file with whichever session key fits. */
-export async function decryptBytes(data: Uint8Array): Promise<{ data: Uint8Array; filename: string | null }> {
+/** Decrypt a binary or armored OpenPGP file with whichever session key fits.
+ *  Signature verdicts work like decryptText's — pass candidate public keys. */
+export async function decryptBytes(data: Uint8Array, verifyWith?: string | string[] | null): Promise<{
+  data: Uint8Array;
+  filename: string | null;
+  sigStatus: SigStatus;
+  signedBy: string | null;
+  signerFingerprint: string | null;
+  signatures: SigVerdict[];
+}> {
   if (!sessionKeys.size) throw new Error('locked');
   const head = new TextDecoder().decode(data.subarray(0, 64));
   const message = head.includes('-----BEGIN PGP')
     ? await openpgp.readMessage({ armoredMessage: new TextDecoder().decode(data) })
     : await openpgp.readMessage({ binaryMessage: data });
+  if (noSessionKeyFits(message)) throw new Error('locked');
+  const verificationKeys = await readVerificationKeys(verifyWith);
   try {
-    const out = await openpgp.decrypt({ message, decryptionKeys: [...sessionKeys.values()], format: 'binary' });
-    return { data: out.data as Uint8Array, filename: out.filename || null };
+    const out = await openpgp.decrypt({
+      message,
+      decryptionKeys: [...sessionKeys.values()],
+      format: 'binary',
+      ...(verificationKeys.length ? { verificationKeys } : {}),
+    });
+    const verdicts = await classifySignatures(out.signatures, verificationKeys);
+    return { data: out.data as Uint8Array, filename: out.filename || null, signatures: verdicts, ...summarize(verdicts) };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (/session key|decryption key|no private key|not decrypted/i.test(msg)) throw new Error('locked');

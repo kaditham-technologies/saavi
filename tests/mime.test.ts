@@ -117,6 +117,129 @@ describe('parsing foreign mail (what other clients send)', () => {
   });
 });
 
+describe('parser hardening (audit + review findings)', () => {
+  it('an empty text part does not swallow the real body (argus #2)', () => {
+    const raw = [
+      'Content-Type: multipart/mixed; boundary="B"',
+      '',
+      '--B',
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      '',                       // empty leading text part (Apple inline layout)
+      '--B',
+      'Content-Type: text/plain; charset=utf-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      Buffer.from('the actual message').toString('base64'),
+      '--B--',
+      '',
+    ].join('\r\n');
+    const out = mime.parseMimeEntity(raw);
+    expect(out.text).toBe('the actual message');
+    expect(out.attachments).toHaveLength(0);
+  });
+
+  it('a child boundary that prefixes the parent does not split the parent (argus #7)', () => {
+    const raw = [
+      'Content-Type: multipart/mixed; boundary="B"',
+      '',
+      '--B',
+      'Content-Type: multipart/related; boundary="B_rel"',
+      '',
+      '--B_rel',
+      'Content-Type: text/html; charset=utf-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      Buffer.from('<p>the real body</p>').toString('base64'),
+      '--B_rel--',
+      '--B--',
+      '',
+    ].join('\r\n');
+    const out = mime.parseMimeEntity(raw);
+    expect(out.html).toBe('<p>the real body</p>');
+  });
+
+  it('a protected Subject is honoured ONLY at top level with protected-headers=v1 (cerberus V3 / argus #9)', () => {
+    // A Subject on a nested part must NOT be adopted.
+    const nested = [
+      'Content-Type: multipart/mixed; boundary="B"',
+      '',
+      '--B',
+      'Content-Type: text/plain; protected-headers="v1"',
+      'Subject: injected subject',
+      '',
+      'body',
+      '--B--',
+      '',
+    ].join('\r\n');
+    expect(mime.parseMimeEntity(nested).subject).toBeNull();
+    // Top-level single part WITH the marker is honoured.
+    const top = mime.buildMimeEntity({ subject: 'real', text: 'body' });
+    expect(mime.parseMimeEntity(top).subject).toBe('real');
+  });
+
+  it('strips bidi overrides from a spoofed attachment filename (cerberus V9)', () => {
+    const raw = mime.buildMimeEntity({
+      text: 'x',
+      attachments: [{ name: 'invoice‮mth.exe', type: 'application/octet-stream', bytes: new Uint8Array([1]) }],
+    });
+    const name = mime.parseMimeEntity(raw).attachments[0].name;
+    expect(name).not.toContain('‮');
+    expect(name).toBe('invoicemth.exe');
+  });
+
+  it('caps a runaway part count instead of hanging (cerberus V8)', () => {
+    const parts = Array.from({ length: 5000 }, () => '--B\r\nContent-Type: text/plain\r\n\r\nx').join('\r\n');
+    const raw = `Content-Type: multipart/mixed; boundary="B"\r\n\r\n${parts}\r\n--B--\r\n`;
+    // must return, not spin; attachment count is bounded
+    const out = mime.parseMimeEntity(raw);
+    expect(out.attachments.length).toBeLessThanOrEqual(128);
+  });
+});
+
+describe('outgoing header safety (cerberus V6, argus #4)', () => {
+  const armored = '-----BEGIN PGP MESSAGE-----\nabc\n-----END PGP MESSAGE-----\n';
+
+  it('a CRLF-laced address is dropped from the header, never injected', () => {
+    const raw = mime.buildEncryptedMessage({
+      from: { email: 'me@example.ie' },
+      to: [{ email: 'ok@example.org' }, { email: 'evil@x.org\r\nBcc: victim@x.org' }],
+      subject: '...', armored,
+    });
+    expect(raw).not.toMatch(/^Bcc:/mi);
+    expect(raw).toContain('To: ok@example.org');
+    expect(raw).not.toContain('evil@x.org');
+  });
+
+  it('a malformed In-Reply-To id cannot add a header line', () => {
+    const raw = mime.buildEncryptedMessage({
+      from: { email: 'me@example.ie' }, to: [{ email: 'a@b.org' }], subject: '...', armored,
+      inReplyTo: ['good@x.org', 'bad\r\nX-Injected: 1@x.org'],
+    });
+    expect(raw).not.toMatch(/^X-Injected:/mi);
+    expect(raw).toContain('In-Reply-To: <good@x.org>');
+  });
+
+  it('folds long recipient and References headers under 998 octets', () => {
+    const to = Array.from({ length: 60 }, (_, i) => ({ email: `person.number.${i}@some-longish-domain.example.com` }));
+    const refs = Array.from({ length: 30 }, (_, i) => `CAF0abcdefghij.longish.local.part.${i}@mail.example.com`);
+    const raw = mime.buildEncryptedMessage({ from: { email: 'me@example.ie' }, to, subject: '...', armored, references: refs });
+    for (const line of raw.split('\r\n')) expect(line.length).toBeLessThanOrEqual(998);
+    // References is capped (first + last ~20), not emitted whole
+    const refLines = raw.split('\r\n\r\n')[0].split('\r\n');
+    expect(refLines.some((l) => l.startsWith('References:'))).toBe(true);
+  });
+
+  it('an attacker-derived attachment content-type cannot break the part', () => {
+    const raw = mime.buildMimeEntity({
+      text: 'x',
+      attachments: [{ name: 'a.bin', type: 'application/pdf\r\nX-Evil: 1', bytes: new Uint8Array([1]) }],
+    });
+    expect(raw).not.toMatch(/^X-Evil:/mi);
+    expect(raw).toContain('Content-Type: application/octet-stream');
+  });
+});
+
 describe('looksLikeMimeEntity', () => {
   it('accepts built entities, rejects legacy bare payloads', () => {
     expect(mime.looksLikeMimeEntity(mime.buildMimeEntity({ text: 'x' }))).toBe(true);
@@ -167,7 +290,11 @@ describe('buildEncryptedMessage (outer RFC 3156 shell)', () => {
       from: { email: ME }, to: [{ email: ME }], subject: '...', armored,
     });
     const outer = mime.parseMimeEntity(wire);
-    expect(outer.subject).toBe('...');
+    // The outer "..." is a plain header on a non-protected entity, so the
+    // parser must NOT surface it as the entity subject (protected-headers
+    // scoping) — the real subject lives inside the ciphertext.
+    expect(outer.subject).toBeNull();
+    expect(wire).toContain('Subject: ...');
     const asc = new TextDecoder().decode(outer.attachments.find((a) => a.name === 'encrypted.asc')!.bytes);
     const dec = await pgp.decryptText(asc, rec.publicKey);
     const got = mime.parseMimeEntity(dec.text);

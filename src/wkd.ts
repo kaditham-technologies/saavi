@@ -21,10 +21,13 @@ function zbase32(bytes: Uint8Array): string {
   return out;
 }
 
-/** The two candidate URLs for an address, advanced method first. */
+/** The two candidate URLs for an address, advanced method first. The domain
+ *  must look like a hostname — it is interpolated into a URL, and a To-field
+ *  author must not get to choose an arbitrary request target. */
 export async function wkdUrls(address: string): Promise<string[]> {
   const [local, domain] = address.toLowerCase().split('@');
   if (!local || !domain) return [];
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain)) return [];
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(local)));
   const hash = zbase32(digest);
   const l = encodeURIComponent(local);
@@ -47,6 +50,35 @@ async function wkdFetch(url: string): Promise<Response> {
 
 /** A WKD response larger than this is not a key; refuse to buffer it. */
 const MAX_KEY_BYTES = 1 << 20;
+
+/** Read a body with the cap enforced WHILE streaming — a chunked response
+ *  with no Content-Length must not get buffered before the check. */
+export async function readCapped(r: Response, maxBytes = MAX_KEY_BYTES): Promise<Uint8Array | null> {
+  const len = Number(r.headers.get('content-length') ?? 0);
+  if (len > maxBytes) return null;
+  const body = r.body;
+  if (!body) {
+    const buf = new Uint8Array(await r.arrayBuffer());
+    return buf.byteLength > maxBytes ? null : buf;
+  }
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      void reader.cancel().catch(() => { /* already refused */ });
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.byteLength; }
+  return out;
+}
 
 /** True when one of the key's user IDs is exactly this address (the domain
  *  is authoritative for its own users, but a WKD server must not be able to
@@ -82,11 +114,9 @@ export async function wkdProbe(address: string): Promise<WkdResult> {
       if (!r.ok) continue;
       // Redirects are followed; the final hop must still be HTTPS.
       if (r.url && !r.url.startsWith('https://')) continue;
-      const len = Number(r.headers.get('content-length') ?? 0);
-      if (len > MAX_KEY_BYTES) continue;
-      const buf = await r.arrayBuffer();
-      if (buf.byteLength > MAX_KEY_BYTES) continue;
-      const key = await openpgp.readKey({ binaryKey: new Uint8Array(buf) });
+      const buf = await readCapped(r);
+      if (!buf) continue;
+      const key = await openpgp.readKey({ binaryKey: buf });
       if (!keyCarriesAddress(key, address)) continue;
       return { key: key.armor(), status: 'found' };
     } catch (e) {

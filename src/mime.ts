@@ -99,13 +99,17 @@ function parseParams(header: string | undefined): { value: string; params: Recor
       continue;
     }
     if (name.endsWith('*')) {
+      // The RFC 2231 extended form is authoritative — it wins over a plain
+      // ASCII fallback regardless of header order (Thunderbird/Outlook emit
+      // both filename= and filename*=).
       name = name.slice(0, -1);
-      val = decodeExtValue(val);
+      params[name] = decodeExtValue(val);
+    } else {
+      params[name] ??= val;
     }
-    params[name] ??= val;
   }
   for (const [name, pieces] of Object.entries(continuations)) {
-    params[name] ??= decodeExtValue(pieces.join(''));
+    params[name] = decodeExtValue(pieces.join(''));
   }
   return { value, params };
 }
@@ -171,15 +175,21 @@ function textPart(type: string, content: string): string {
   ].join(CRLF);
 }
 
+/** A content-type this side controls; anything odd collapses to octet-stream
+ *  so an attacker-derived `type` (forwarded from inbound JMAP) can never
+ *  smuggle a header break or extra parameters onto the wire. */
+function safeType(type: string): string {
+  return /^[\w.+-]+\/[\w.+-]+$/.test(type) ? type : 'application/octet-stream';
+}
+
 function attachmentPart(a: MimeAttachment): string {
-  const ascii = /^[\x20-\x7e]*$/.test(a.name) && !a.name.includes('"');
-  const nameParam = ascii
-    ? `filename="${a.name}"`
-    : `filename*=utf-8''${[...new TextEncoder().encode(a.name)]
-        .map((b) => (b > 0x20 && b < 0x7f && !'%\'";'.includes(String.fromCharCode(b))
-          ? String.fromCharCode(b) : '%' + b.toString(16).padStart(2, '0').toUpperCase())).join('')}`;
+  // RFC 2231 always — no quoted ASCII branch, so a name containing " or \
+  // can never break out of the parameter.
+  const nameParam = `filename*=utf-8''${[...new TextEncoder().encode(a.name)]
+    .map((b) => (b > 0x20 && b < 0x7f && !"%'\";\\".includes(String.fromCharCode(b))
+      ? String.fromCharCode(b) : '%' + b.toString(16).padStart(2, '0').toUpperCase())).join('')}`;
   return [
-    `Content-Type: ${a.type || 'application/octet-stream'}`,
+    `Content-Type: ${safeType(a.type)}`,
     'Content-Transfer-Encoding: base64',
     `Content-Disposition: attachment; ${nameParam}`,
     '',
@@ -239,20 +249,55 @@ export function looksLikeMimeEntity(payload: string): boolean {
   return /^(?:[!-9;-~]+:[^\n]*\r?\n)+/.test(head) && /^content-type:/im.test(head);
 }
 
-function walk(raw: string, out: MimeEntity, depth: number): void {
-  if (depth > 10) return;   // malformed nesting — stop, keep what we have
+/** Bounds so a hostile decrypted payload cannot hang or OOM the reader:
+ *  an attacker can encrypt anything to a published key, and OpenPGP
+ *  decompresses with no ceiling. */
+const MAX_ENTITY_BYTES = 40 * 1024 * 1024;
+const MAX_PARTS = 512;
+const MAX_ATTACHMENTS = 128;
+
+/** Strip bidi overrides and control characters that let a filename or a
+ *  protected subject read as something other than what it is. */
+function sanitizeText(s: string, max = 20_000): string {
+  let out = '';
+  for (const ch of s) {
+    const c = ch.codePointAt(0)!;
+    const control = (c < 0x20 && c !== 0x09) || (c >= 0x7f && c <= 0x9f);
+    const bidi = c === 0x200e || c === 0x200f || (c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069);
+    if (!control && !bidi) out += ch;
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+interface WalkState { parts: number }
+
+function walk(raw: string, out: MimeEntity, depth: number, st: WalkState): void {
+  if (depth > 10 || st.parts > MAX_PARTS) return;   // malformed/hostile nesting
+  if (!raw.trim()) return;                           // an empty chunk is not a part
+  st.parts++;
   const { headers, body } = splitEntity(raw);
   const ct = parseParams(headers['content-type'] ?? 'text/plain; charset=us-ascii');
-  if (headers['subject'] !== undefined && out.subject === null) {
-    out.subject = decodeWords(headers['subject']);
+  // A protected Subject is only trustworthy on the TOP-LEVEL entity that
+  // actually declares protected-headers="v1" (the LAMPS convention) — never
+  // adopted from an arbitrary nested part an attacker can add.
+  if (depth === 0 && out.subject === null
+      && ct.params['protected-headers'] === 'v1'
+      && headers['subject'] !== undefined) {
+    out.subject = sanitizeText(decodeWords(headers['subject']));
   }
   if (ct.value.startsWith('multipart/')) {
     const b = ct.params['boundary'];
     if (!b) return;
-    const chunks = body.split(new RegExp(`(?:^|\\r?\\n)--${b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    // The delimiter must END the line — otherwise a child boundary that has
+    // the parent's as a prefix (Exchange/Apple "_000_ABC_" vs "_000_ABC__2")
+    // would split the parent too.
+    const esc = b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const chunks = body.split(new RegExp(`(?:^|\\r?\\n)--${esc}(?=[ \\t]*(?:\\r?\\n|--|$))`));
     for (const chunk of chunks.slice(1)) {
       if (/^--/.test(chunk)) break;   // closing delimiter
-      walk(chunk.replace(/^[^\n]*\r?\n/, ''), out, depth + 1);
+      if (st.parts > MAX_PARTS) break;
+      walk(chunk.replace(/^[^\n]*\r?\n/, ''), out, depth + 1, st);
     }
     return;
   }
@@ -260,20 +305,30 @@ function walk(raw: string, out: MimeEntity, depth: number): void {
   const bytes = decodeBody(body, headers['content-transfer-encoding']);
   const isAttachment = disp.value === 'attachment'
     || (!ct.value.startsWith('text/') && !ct.value.startsWith('multipart/'));
-  if (!isAttachment && ct.value === 'text/plain' && out.text === null) {
-    out.text = decodeCharset(bytes, ct.params['charset']);
-  } else if (!isAttachment && ct.value === 'text/html' && out.html === null) {
-    out.html = decodeCharset(bytes, ct.params['charset']);
-  } else {
+  // Gate on emptiness, not nullness: an empty text/plain part (Apple inline
+  // layouts, phantom fragments) must not claim the body slot and shunt the
+  // real body into a nameless attachment. Siblings concatenate.
+  if (!isAttachment && ct.value === 'text/plain') {
+    const t = decodeCharset(bytes, ct.params['charset']);
+    if (t) out.text = (out.text ?? '') + t;
+  } else if (!isAttachment && ct.value === 'text/html') {
+    const h = decodeCharset(bytes, ct.params['charset']);
+    if (h) out.html = (out.html ?? '') + h;
+  } else if (out.attachments.length < MAX_ATTACHMENTS) {
     const name = disp.params['filename'] ?? ct.params['name'] ?? 'attachment';
-    out.attachments.push({ name: decodeWords(name), type: ct.value || 'application/octet-stream', bytes });
+    out.attachments.push({
+      name: sanitizeText(decodeWords(name), 255) || 'attachment',
+      type: /^[\w.+-]+\/[\w.+-]+$/.test(ct.value) ? ct.value : 'application/octet-stream',
+      bytes,
+    });
   }
 }
 
 /** Parse a decrypted inner entity back into subject / text / html / files. */
 export function parseMimeEntity(raw: string): MimeEntity {
   const out: MimeEntity = { subject: null, text: null, html: null, attachments: [] };
-  walk(raw, out, 0);
+  if (raw.length > MAX_ENTITY_BYTES) return out;   // refuse a decompression bomb
+  walk(raw, out, 0, { parts: 0 });
   return out;
 }
 
@@ -286,14 +341,50 @@ function headerWord(src: string): string {
   return /^[\x20-\x7e]*$/.test(src) ? src : `=?utf-8?B?${b64encode(new TextEncoder().encode(src))}?=`;
 }
 
+/** A syntactically safe addr-spec, or null. The address is emitted RAW into
+ *  a header (and used as an envelope recipient), so anything that isn't a
+ *  plain addr-spec — CR/LF, spaces, angle brackets, commas — is refused
+ *  rather than sanitised. */
+function safeEmail(email: string): string | null {
+  const e = email.trim();
+  return /^[^\s<>(),:;@"\\]+@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(e) ? e : null;
+}
+
 function addrList(list: MailAddress[]): string {
   return list.map((a) => {
+    const email = safeEmail(a.email);
+    if (!email) return '';   // dropped from the header; caller validated rcptTo
     const clean = a.name?.replace(/[\r\n"]+/g, ' ').trim();
-    if (!clean) return a.email;
+    if (!clean) return email;
     // An encoded word must stand bare — never inside quotes (RFC 2047 §5).
-    if (!/^[\x20-\x7e]*$/.test(clean)) return `${headerWord(clean)} <${a.email}>`;
-    return /^[\w .-]*$/.test(clean) ? `${clean} <${a.email}>` : `"${clean.replace(/\\/g, '')}" <${a.email}>`;
-  }).join(', ');
+    if (!/^[\x20-\x7e]*$/.test(clean)) return `${headerWord(clean)} <${email}>`;
+    return /^[\w .-]*$/.test(clean) ? `${clean} <${email}>` : `"${clean.replace(/\\/g, '')}" <${email}>`;
+  }).filter(Boolean).join(', ');
+}
+
+/** A safe Message-ID token (`<...>` with no header-breaking characters). */
+function safeMsgId(raw: string): string | null {
+  const id = raw.replace(/^<|>$/g, '').trim();
+  return /^[^\s<>]+$/.test(id) ? `<${id}>` : null;
+}
+
+/** Fold a header value onto continuation lines so no line exceeds RFC 5322's
+ *  998-octet limit; breaks only at the given separator (", " or " "). */
+function foldHeader(name: string, value: string, sep: string): string {
+  const items = value.split(sep);
+  const lines: string[] = [];
+  let cur = `${name}:`;
+  for (const item of items) {
+    const piece = (cur.endsWith(':') ? ' ' : sep) + item;
+    if (cur.length + piece.length > 76 && !cur.endsWith(':')) {
+      lines.push(cur);
+      cur = ' ' + item;
+    } else {
+      cur += piece;
+    }
+  }
+  lines.push(cur);
+  return lines.join(CRLF);
 }
 
 function rfc5322Date(d: Date): string {
@@ -323,19 +414,29 @@ export function buildEncryptedMessage(opts: {
   references?: string[];
 }): string {
   const b = boundary();
-  const domain = opts.from.email.split('@')[1] ?? 'localhost';
+  const fromEmail = safeEmail(opts.from.email);
+  if (!fromEmail) throw new Error('The From address is not a valid email address.');
+  const domain = fromEmail.split('@')[1];
   const r = new Uint8Array(16);
   crypto.getRandomValues(r);
-  const msgId = opts.messageId ?? `<${[...r].map((x) => x.toString(16).padStart(2, '0')).join('')}@${domain}>`;
+  const generatedId = `<${[...r].map((x) => x.toString(16).padStart(2, '0')).join('')}@${domain}>`;
+  const msgId = (opts.messageId ? safeMsgId(opts.messageId) : null) ?? generatedId;
+  // Message-id lists come from inbound headers (attacker-written) — keep only
+  // syntactically valid ids, and cap References the way RFC 5322 §3.6.4
+  // recommends (first plus the most recent) so a long thread can't blow the
+  // header past the line limit.
+  const inReplyTo = (opts.inReplyTo ?? []).map(safeMsgId).filter((x): x is string => Boolean(x));
+  let references = (opts.references ?? []).map(safeMsgId).filter((x): x is string => Boolean(x));
+  if (references.length > 21) references = [references[0], ...references.slice(-20)];
   const headers = [
-    `From: ${addrList([opts.from])}`,
-    `To: ${addrList(opts.to)}`,
-    ...(opts.cc?.length ? [`Cc: ${addrList(opts.cc)}`] : []),
-    `Subject: ${headerWord(opts.subject.replace(/[\r\n]+/g, ' '))}`,
+    foldHeader('From', addrList([opts.from]), ', '),
+    foldHeader('To', addrList(opts.to), ', '),
+    ...(opts.cc?.length ? [foldHeader('Cc', addrList(opts.cc), ', ')] : []),
+    `Subject: ${headerWord(sanitizeText(opts.subject.replace(/[\r\n]+/g, ' ')))}`,
     `Date: ${rfc5322Date(opts.date ?? new Date())}`,
     `Message-ID: ${msgId}`,
-    ...(opts.inReplyTo?.length ? [`In-Reply-To: ${opts.inReplyTo.map((i) => `<${i.replace(/^<|>$/g, '')}>`).join(' ')}`] : []),
-    ...(opts.references?.length ? [`References: ${opts.references.map((i) => `<${i.replace(/^<|>$/g, '')}>`).join(' ')}`] : []),
+    ...(inReplyTo.length ? [foldHeader('In-Reply-To', inReplyTo.join(' '), ' ')] : []),
+    ...(references.length ? [foldHeader('References', references.join(' '), ' ')] : []),
     'MIME-Version: 1.0',
     `Content-Type: multipart/encrypted; protocol="application/pgp-encrypted"; boundary="${b}"`,
   ];

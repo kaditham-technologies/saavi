@@ -218,6 +218,83 @@ describe('clearsign / verify / files', () => {
   });
 });
 
+describe('signature verdicts on unseal (audit M1)', () => {
+  it('distinguishes unsigned, signed-good, and signed-unknown', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    await pgp.unlockPrivateKey(ME, PASS);
+    const pub = pgp.keysFor(ME)!.publicKey;
+
+    const unsigned = await pgp.encryptText('u', [pub], ME, { sign: false });
+    const uo = await pgp.decryptText(unsigned, pub);
+    expect(uo.sigStatus).toBe('unsigned');
+    expect(uo.signatures).toHaveLength(0);
+
+    const signed = await pgp.encryptText('s', [pub], ME);
+    const so = await pgp.decryptText(signed, pub);
+    expect(so.sigStatus).toBe('good');
+    expect(so.signedBy).toBe(ME);
+    expect(so.signerFingerprint).toBeTruthy();
+
+    // No candidate key → the signature exists but cannot be attributed.
+    const uk = await pgp.decryptText(signed);
+    expect(uk.sigStatus).toBe('unknown-key');
+    expect(uk.signatures[0].keyId).toMatch(/^[0-9A-F]{16}$/);
+  });
+
+  it('a bad signature never hides behind the plaintext (summary is worst-first)', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    await pgp.unlockPrivateKey(ME, PASS);
+    const pub = pgp.keysFor(ME)!.publicKey;
+    // A key with the SAME address but a different keypair must not verify.
+    const impostor = await pgp.generateKeys('other@example.org', 'Other', PASS);
+    const signed = await pgp.encryptText('m', [pub], ME);
+    // Offer only the impostor as the verification key → unknown-key, not good.
+    const out = await pgp.decryptText(signed, impostor.publicKey);
+    expect(out.sigStatus).toBe('unknown-key');
+    expect(out.signedBy).toBeNull();
+  });
+
+  it('decryptBytes now carries signature verdicts too', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    await pgp.unlockPrivateKey(ME, PASS);
+    const pub = pgp.keysFor(ME)!.publicKey;
+    const data = new Uint8Array([1, 2, 3, 4]);
+    const sealed = await pgp.encryptBytes(data, 'f.bin', [pub], ME);
+    const out = await pgp.decryptBytes(sealed, pub);
+    expect(out.sigStatus).toBe('good');
+    expect(out.signedBy).toBe(ME);
+    expect(Array.from(out.data)).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe('import re-locks with our S2K (audit I3)', () => {
+  it('a cleartext export is stored passphrase-locked', async () => {
+    const gen = await openpgp.generateKey({ userIDs: [{ email: ME }], format: 'armored', type: 'ecc', curve: 'curve25519Legacy' });
+    // gen.privateKey is unlocked (no passphrase). Import must lock it.
+    const rec = await pgp.importKey(ME, gen.privateKey, PASS);
+    const stored = await openpgp.readPrivateKey({ armoredKey: rec.privateKey });
+    expect(stored.isDecrypted()).toBe(false);
+    await expect(openpgp.decryptKey({ privateKey: stored, passphrase: 'wrong' })).rejects.toThrow();
+    await expect(openpgp.decryptKey({ privateKey: stored, passphrase: PASS })).resolves.toBeTruthy();
+  });
+});
+
+describe('corrupt store record is quarantined, not lost (audit M3)', () => {
+  it('parks the bad record and raises an alert instead of vanishing', async () => {
+    localStorage.setItem('saavi-ring-bad@example.org', '{ this is not json');
+    expect(pgp.ringFor('bad@example.org')).toBeNull();
+    const alerts = pgp.storeAlerts();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].email).toBe('bad@example.org');
+    // the raw bytes are preserved under the quarantine key
+    expect(localStorage.getItem(alerts[0].quarantineKey)).toBe('{ this is not json');
+    // and removed from the live slot so it can't keep tripping load()
+    expect(localStorage.getItem('saavi-ring-bad@example.org')).toBeNull();
+    pgp.dismissStoreAlert(alerts[0].quarantineKey);
+    expect(pgp.storeAlerts()).toHaveLength(0);
+  });
+});
+
 describe('explicit signing', () => {
   it('seals unsigned when asked, even with a key unlocked', async () => {
     await pgp.generateKeys(ME, 'Me', PASS);

@@ -49,7 +49,11 @@ export async function check(current: string, force = false): Promise<UpdateInfo 
   try {
     const r = await get(MANIFEST_URL);
     if (!r.ok) return null;
-    const m = (await r.json()) as { version?: unknown; published?: unknown };
+    // A manifest is a few hundred bytes; cap the read like WKD does.
+    const { readCapped } = await import('./wkd');
+    const buf = await readCapped(r, 64 * 1024);
+    if (!buf) return null;
+    const m = JSON.parse(new TextDecoder().decode(buf)) as { version?: unknown; published?: unknown };
     if (typeof m.version !== 'string' || !/^\d+(\.\d+){1,3}$/.test(m.version)) return null;
     if (!isNewer(m.version, current)) return null;
     return { version: m.version, published: typeof m.published === 'string' ? m.published : null };

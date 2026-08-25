@@ -8,7 +8,7 @@ import * as pgp from './pgp';
 import * as gpg from './gpg';
 import * as keychain from './keychain';
 import { wkdProbe } from './wkd';
-import { vksLookup } from './vks';
+import { vksLookup, vksLookupKeyId } from './vks';
 import { ask, confirmBox, notice } from './ui';
 import { generatePassphrase, passphraseBits, describeStrength } from './passphrase';
 import * as update from './update';
@@ -94,8 +94,7 @@ function lockAll(why: 'idle' | 'manual'): void {
   pgp.clearSession();
   const msg = why === 'idle' ? 'Locked: no input for 15 minutes.' : 'Locked: unlocked keys forgotten.';
   if (source === 'saavi' && $('modal').hidden) {
-    // Re-render without the keychain, or the lock would undo itself at once.
-    void refreshKeys({ keychain: false }).then(() => status(msg));
+    void refreshKeys().then(() => status(msg));
   } else {
     status(msg);
   }
@@ -108,6 +107,16 @@ function armIdle(): void {
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => { if (pgp.hasUnlockedKeys()) lockAll('idle'); else armIdle(); }, IDLE_MS);
 }
+// A hidden window is a walked-away-from window: lock after a third of the
+// idle allowance out of sight, regardless of the last input.
+const HIDDEN_MS = IDLE_MS / 3;
+let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
+document.addEventListener('visibilitychange', () => {
+  clearTimeout(hiddenTimer);
+  if (document.hidden && pgp.hasUnlockedKeys()) {
+    hiddenTimer = setTimeout(() => { if (document.hidden && pgp.hasUnlockedKeys()) lockAll('idle'); }, HIDDEN_MS);
+  }
+});
 for (const ev of ['pointerdown', 'keydown', 'mousemove', 'wheel', 'focus'] as const) {
   window.addEventListener(ev, armIdle, { passive: true, capture: true });
 }
@@ -289,19 +298,41 @@ function markSelected(rows: HTMLElement, row: HTMLElement): void {
 const keyLabel = (k: gpg.SystemKey): string => k.uids[0]?.email || k.uids[0]?.name || k.key_id;
 const dead = (k: gpg.SystemKey): boolean => k.revoked || k.expired || k.disabled;
 
-async function refreshKeys(opts: { keychain?: boolean } = {}): Promise<void> {
+async function refreshKeys(): Promise<void> {
   const rows = $('rows');
   rows.replaceChildren(el('p', 'loading', 'Reading the keyring…'));
   const go = source;
   if (go === 'system') return refreshSystemKeys(rows);
 
-  const flat: { email: string; info: pgp.KeyInfo }[] = [];
+  // Keychain-remembered keys unlock LAZILY (ensureUnlocked / the unseal
+  // attempt), never here — otherwise every refresh would undo Lock and the
+  // idle timer, and remembered keys would sit decrypted all session.
+  const flat: { email: string; info: pgp.KeyInfo; remembered: boolean }[] = [];
   for (const email of ringAddresses()) {
-    if (opts.keychain !== false && !pgp.isUnlocked(email)) await tryKeychainUnlock(email);
-    for (const info of await pgp.listKeys(email).catch(() => [] as pgp.KeyInfo[])) flat.push({ email, info });
+    for (const info of await pgp.listKeys(email).catch(() => [] as pgp.KeyInfo[])) {
+      let remembered = false;
+      if (keychainOk && !info.unlocked) {
+        remembered = await keychain.get(info.fingerprint.replace(/\s+/g, '').toLowerCase())
+          .then((p) => !!p).catch(() => false);
+      }
+      flat.push({ email, info, remembered });
+    }
   }
   if (source !== go) return;
   rows.replaceChildren();
+  // A store record that failed to parse was quarantined, not destroyed —
+  // and that must be LOUD, not a silently shorter key list.
+  for (const alert of pgp.storeAlerts()) {
+    const bar = el('div', 'alert-bar');
+    bar.append(el('strong', undefined, `A stored key record for ${alert.email} could not be read. `));
+    bar.append(el('span', undefined,
+      'It was preserved, not deleted. Re-import that key’s backup file; the damaged record is kept in browser storage under “'
+      + alert.quarantineKey + '”.'));
+    const ok = el('button', 'ghost', 'Dismiss');
+    ok.addEventListener('click', () => { pgp.dismissStoreAlert(alert.quarantineKey); void refreshKeys(); });
+    bar.append(ok);
+    rows.append(bar);
+  }
   if (!flat.length) {
     const empty = el('div', 'empty');
     empty.append(el('p', undefined, 'No keys yet. This is a fresh keyring.'));
@@ -310,9 +341,11 @@ async function refreshKeys(opts: { keychain?: boolean } = {}): Promise<void> {
     empty.append(b);
     rows.append(empty);
   }
-  for (const { email, info } of flat) {
+  for (const { email, info, remembered } of flat) {
     const row = rowFor({
-      dot: info.unlocked, dotTitle: info.unlocked ? 'Unlocked this session' : 'Locked',
+      dot: info.unlocked,
+      dotTitle: info.unlocked ? 'Unlocked this session'
+        : remembered ? 'Locked — remembered in the OS keychain, unlocks when needed' : 'Locked',
       addr: email,
       id: '…' + info.fingerprint.replace(/\s+/g, '').slice(-8).toUpperCase(),
       date: fmtDate(info.created),
@@ -846,6 +879,48 @@ function sealShow(label: string, text: string, sigs?: gpg.SignatureInfo[] | null
 const recipientsRaw = (): string => ($('seal-to') as HTMLInputElement).value.trim();
 const signAs = (): string => ($('seal-sign') as HTMLSelectElement).value;
 
+/** Every fingerprint on this device's rings (active AND retired), raw hex.
+ *  THE own-key test: trust badges compare fingerprints, never UID strings —
+ *  a user ID is attacker-chosen text. */
+async function ownFingerprints(): Promise<Set<string>> {
+  const fprs = new Set<string>();
+  for (const email of ringAddresses()) {
+    for (const k of await pgp.listKeys(email).catch(() => [] as pgp.KeyInfo[])) {
+      fprs.add(k.fingerprint.replace(/\s+/g, '').toUpperCase());
+    }
+  }
+  return fprs;
+}
+
+/** Map core signature verdicts onto the signature strip's row format. */
+function verdictInfos(verdicts: pgp.SigVerdict[], ownFprs: Set<string>): gpg.SignatureInfo[] {
+  return verdicts.map((v) => {
+    const raw = v.fingerprint?.replace(/\s+/g, '').toUpperCase() ?? '';
+    return {
+      status: v.status === 'unsigned' ? 'error' : v.status,
+      fingerprint: raw,
+      key_id: v.keyId,
+      uid: v.signedBy ?? '',
+      trust: v.status === 'good' && raw && ownFprs.has(raw) ? 'ultimate' : '',
+    };
+  });
+}
+
+/** Candidate verification keys for an unseal: every own key plus whatever
+ *  the To field names (a pasted key, or lookups for its addresses). */
+async function unsealCandidates(toRaw: string): Promise<string[]> {
+  const cands: string[] = [];
+  for (const email of ringAddresses()) {
+    const k = pgp.keysFor(email);
+    if (k) cands.push(k.publicKey);
+  }
+  if (toRaw) {
+    const { keys } = await resolveSaaviRecipients(toRaw);
+    cands.push(...keys);
+  }
+  return cands;
+}
+
 /** Saavi store: resolve the To field to armored public keys. */
 /** Split a To field: commas, semicolons, whitespace and newlines all separate addresses. */
 function splitAddresses(raw: string): string[] {
@@ -929,7 +1004,11 @@ $('seal-enc').addEventListener('click', async () => {
     if (missing.length) return sealFail(`No key found. ${why.join('. ')}. Ask them for their public key and paste it into To instead.`);
     const signer = signAs();
     if (signer && !await ensureUnlocked(signer)) return sealFail('Not sealed — the signing key stayed locked.');
-    sealShow(signer ? 'Sealed and signed message' : 'Sealed message', await pgp.encryptText(text, keys, signer || undefined, { sign: !!signer }));
+    // Also seal to the signing identity's own key, so the sender keeps a
+    // readable record of what they sent (copy-paste sealers lose it otherwise).
+    const self = signer ? pgp.keysFor(signer)?.publicKey : null;
+    if (self) keys.push(self);
+    sealShow(signer ? 'Sealed and signed message (also readable by you)' : 'Sealed message', await pgp.encryptText(text, keys, signer || undefined, { sign: !!signer }));
   } catch (e2) {
     sealFail(errMsg(e2));
   }
@@ -965,8 +1044,10 @@ $('seal-verify').addEventListener('click', async () => {
     for (const email of ringAddresses()) { const k = pgp.keysFor(email); if (k) cands.push(k.publicKey); }
     if (toRaw) cands.push(...(await resolveSaaviRecipients(toRaw)).keys);
     const v = await pgp.verifyText(text, cands);
-    // A key found for an address is not a trusted key — say "verify the fingerprint".
-    const own = ringAddresses().some((e) => pgp.keysFor(e) && (v.signerUid ?? '').toLowerCase().includes(e));
+    // "Your key" is a FINGERPRINT comparison — never a match on the UID
+    // string, which the key's author writes and can embed your address in.
+    const own = !!v.signerFingerprint
+      && (await ownFingerprints()).has(v.signerFingerprint.replace(/\s+/g, '').toUpperCase());
     const sig: gpg.SignatureInfo = {
       status: v.status, fingerprint: v.signerFingerprint?.replace(/\s+/g, '') ?? '', key_id: '', uid: v.signerUid ?? '',
       trust: v.status === 'good' && own ? 'ultimate' : '',
@@ -992,8 +1073,18 @@ $('seal-dec').addEventListener('click', async () => {
   }
   const attempt = async (): Promise<void> => {
     try {
-      const out = await pgp.decryptText(text);
-      sealShow('Unsealed text', out.text);
+      // Verify against own keys + anything the To field names; a signer we
+      // still don't know is looked up by key ID (an untrusted candidate —
+      // it can name the signer, never vouch for them).
+      const cands = await unsealCandidates(recipientsRaw());
+      let out = await pgp.decryptText(text, cands);
+      const unknown = out.signatures.filter((s) => s.status === 'unknown-key');
+      if (unknown.length) {
+        const found = (await Promise.all(unknown.map((s) => vksLookupKeyId(s.keyId).catch(() => null))))
+          .filter((k): k is string => Boolean(k));
+        if (found.length) out = await pgp.decryptText(text, [...cands, ...found]);
+      }
+      sealShow('Unsealed text', out.text, verdictInfos(out.signatures, await ownFingerprints()));
     } catch (e) {
       if (!(e instanceof Error && e.message === 'locked')) return sealFail(`Could not unseal: ${errMsg(e)}`);
       for (const email of ringAddresses()) {
