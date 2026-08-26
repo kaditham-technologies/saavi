@@ -135,6 +135,8 @@ export const revokeUid = (fingerprint: string, uid: string): Promise<void> => ca
 export const setOwnertrust = (fingerprint: string, level: number): Promise<void> => call('gpg_set_ownertrust', { fingerprint, level });
 export const signKey = (fingerprint: string, signer: string, local: boolean): Promise<void> => call('gpg_sign_key', { fingerprint, signer, local });
 export const recvKey = (fingerprint: string): Promise<ImportOutcome> => call('gpg_recv_key', { fingerprint });
+/** Revocation certificate for an own key; pinentry asks for the passphrase. */
+export const genRevoke = (fingerprint: string): Promise<string> => call('gpg_gen_revoke', { fingerprint });
 export interface FileOutcome {
   /** '' when a dialog was cancelled. */
   output: string;

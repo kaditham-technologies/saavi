@@ -55,6 +55,21 @@ should get a CHANGELOG line.
       no pinentry-mac): gpg fails to ask for the passphrase. Detect and
       point at `pinentry-mac`.
 
+## KGpg parity backlog (gap review 2026-08-26)
+
+- [x] **Publish key to a keyserver** (keys.openpgp.org upload + verification
+      mail). Landed with revocation certificates; CHANGELOG "Unreleased".
+- [x] **Revocation certificates** — generate/save for own keys, both
+      keyrings. (Revoking by IMPORTING a certificate through the UI is still
+      the system-keyring "next slice" item above.)
+- [ ] **Keyserver search UI** — find a key by name/address on
+      keys.openpgp.org and import it (lookup exists in the sealer; there is
+      no browse/search surface). Includes "refresh key from keyserver".
+- [ ] **Drag-and-drop files** onto the window to seal/unseal (file pickers
+      exist; DnD is the KGpg-feel gesture).
+- [ ] **Add a subkey** (gpg `--quick-add-key`) for system keys.
+- [ ] **Key groups** (gpg group lines) — only if a real user asks.
+
 ## Project hygiene
 
 - [x] **Tests.** `tests/` covers the keystore, import, rotation, seal /

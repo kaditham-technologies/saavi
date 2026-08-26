@@ -295,6 +295,39 @@ describe('corrupt store record is quarantined, not lost (audit M3)', () => {
   });
 });
 
+describe('revocation certificates', () => {
+  it('is captured at generation and revokes the key when applied', async () => {
+    const rec = await pgp.generateKeys(ME, 'Me', PASS);
+    expect(rec.revocationCertificate).toContain('BEGIN PGP PUBLIC KEY BLOCK');
+    // a captured certificate needs no unlock
+    const cert = await pgp.revocationCertificate(ME);
+    expect(cert).toBe(rec.revocationCertificate);
+    const { publicKey } = await openpgp.revokeKey({
+      key: await openpgp.readKey({ armoredKey: rec.publicKey }),
+      revocationCertificate: cert,
+      format: 'object',
+    });
+    expect(await publicKey.isRevoked()).toBe(true);
+  });
+
+  it('a record without a captured certificate derives one, but only unlocked', async () => {
+    const rec = await pgp.generateKeys(ME, 'Me', PASS);
+    // a pre-capture / imported record: no stored certificate
+    const ring = pgp.ringFor(ME)!;
+    delete ring.active.revocationCertificate;
+    localStorage.setItem('saavi-ring-' + ME, JSON.stringify(ring));
+    await expect(pgp.revocationCertificate(ME)).rejects.toThrow('locked');
+    await pgp.unlockPrivateKey(ME, PASS);
+    const cert = await pgp.revocationCertificate(ME);
+    const { publicKey } = await openpgp.revokeKey({
+      key: await openpgp.readKey({ armoredKey: rec.publicKey }),
+      revocationCertificate: cert,
+      format: 'object',
+    });
+    expect(await publicKey.isRevoked()).toBe(true);
+  });
+});
+
 describe('explicit signing', () => {
   it('seals unsigned when asked, even with a key unlocked', async () => {
     await pgp.generateKeys(ME, 'Me', PASS);

@@ -26,6 +26,8 @@ the webmail** — change them here, then re-sync.
 | Zero-access storage toggle | n/a | ✓ (Settings) | server feature |
 | Account identities as addresses | planned pairing | ✓ | |
 | OS keychain | planned | n/a (browser) | the reason Saavi exists |
+| Publish key to keys.openpgp.org | ✓ | needs sync | core (`vks.ts` upload + request-verify) |
+| Revocation certificates | ✓ | needs sync | core (`pgp.ts`); system keys via gpg |
 | System GnuPG keyring (`gpg.rs`/`gpg.ts`) | ✓ | n/a (browser) | Saavi-only; delegates to the user's gpg |
 
 ## The rule

@@ -30,6 +30,7 @@ fn main() {
             gpg::gpg_set_ownertrust,
             gpg::gpg_sign_key,
             gpg::gpg_recv_key,
+            gpg::gpg_gen_revoke,
             gpg::gpg_encrypt_file,
             gpg::gpg_decrypt_file,
             keychain::keychain_available,

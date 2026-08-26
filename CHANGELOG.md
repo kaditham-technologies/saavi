@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **Publish your key to keys.openpgp.org.** A new action in key details
+  uploads the public key (own keys only — Saavi store, or system keys with
+  their secret half here). The key is findable by fingerprint immediately;
+  the keyserver mails each address a verification link, and by-email search
+  works once it is clicked.
+- **Revocation certificates.** Key details can now save the signed "this key
+  is no longer valid" note — generated up front with new Saavi-store keys
+  (and stored alongside them), derived on demand for imported or older keys
+  (unlock required), and produced by gpg itself for system keys. Keep it
+  separate from backups; import + publish it if a key is ever lost or
+  compromised. GnuPG-interop tested.
+
 ## 0.3.1 — 2026-08-26
 
 - **Key details on a single click.** Clicking a key row now opens the details

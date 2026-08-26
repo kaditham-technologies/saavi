@@ -5,12 +5,47 @@
 import * as openpgp from 'openpgp';
 import { readCapped } from './wkd';
 
-async function vksFetch(url: string): Promise<Response> {
+async function vksFetch(url: string, init?: RequestInit): Promise<Response> {
   if ('__TAURI_INTERNALS__' in window) {
     const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
-    return tauriFetch(url);
+    return tauriFetch(url, init);
   }
-  return fetch(url);
+  return fetch(url, init);
+}
+
+async function vksPost(path: string, body: unknown): Promise<Record<string, unknown>> {
+  const r = await vksFetch(`https://keys.openpgp.org/vks/v1/${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const j: unknown = await r.json().catch(() => null);
+  const obj = j && typeof j === 'object' ? j as Record<string, unknown> : null;
+  if (!r.ok || !obj) {
+    throw new Error(typeof obj?.error === 'string' ? obj.error : `keys.openpgp.org answered ${r.status}.`);
+  }
+  return obj;
+}
+
+/** Per-address publication state ("published" / "pending" / "unpublished" /
+ *  "revoked") plus the token that can request verification mails. */
+export interface VksUploadResult { fingerprint: string; status: Record<string, string>; token: string }
+
+/** Upload a PUBLIC key. Uploading alone makes it findable by FINGERPRINT;
+ *  by-email search needs the owner to click the verification link
+ *  (vksRequestVerify) — the server shows no user IDs until then. */
+export async function vksUpload(armoredPublicKey: string): Promise<VksUploadResult> {
+  const j = await vksPost('upload', { keytext: armoredPublicKey });
+  if (typeof j.key_fpr !== 'string' || typeof j.token !== 'string') throw new Error('keys.openpgp.org gave an unexpected answer.');
+  return { fingerprint: j.key_fpr, status: (j.status ?? {}) as Record<string, string>, token: j.token };
+}
+
+/** Ask the keyserver to mail each address its verification link. Only ever
+ *  called for the USER'S OWN addresses (a key with its secret half here) —
+ *  publishing someone else's key must not trigger mail to strangers. */
+export async function vksRequestVerify(token: string, addresses: string[]): Promise<Record<string, string>> {
+  const j = await vksPost('request-verify', { token, addresses });
+  return (j.status ?? {}) as Record<string, string>;
 }
 
 export async function vksLookup(address: string): Promise<string | null> {

@@ -20,6 +20,9 @@ export interface KeyRecord {
   publicKey: string;
   privateKey: string;   // armored, passphrase-encrypted
   created: string;
+  /** Armored revocation certificate, captured at generation. Absent on
+   *  imported and pre-capture keys; those derive one on demand (unlocked). */
+  revocationCertificate?: string;
 }
 
 export interface KeyRing {
@@ -150,11 +153,11 @@ export async function generateKeys(
     passphrase,
     format: 'armored' as const,
   };
-  const { privateKey, publicKey } =
+  const { privateKey, publicKey, revocationCertificate } =
     algo === 'rsa4096'
       ? await openpgp.generateKey({ ...base, type: 'rsa' as const, rsaBits: 4096 })
       : await openpgp.generateKey({ ...base, type: 'ecc' as const, curve: 'curve25519Legacy' as const });
-  const rec: KeyRecord = { publicKey, privateKey, created: new Date().toISOString() };
+  const rec: KeyRecord = { publicKey, privateKey, created: new Date().toISOString(), revocationCertificate };
   await adopt(email, rec);
   return rec;
 }
@@ -459,6 +462,36 @@ export async function deleteRetired(email: string, fingerprint: string): Promise
  *  shell this opens a real save dialog (blob-anchor downloads are inert in
  *  the webview); in a plain browser it falls back to an anchor download.
  *  Returns the saved path, '' for a browser download, or null if cancelled. */
+/**
+ * Revocation certificate for a stored key — the signed "this key is no longer
+ * valid" note to keep apart from backups. Prefers the certificate captured at
+ * generation (no unlock needed). A key that predates capture, or was imported,
+ * derives one from its UNLOCKED private key by revoking a copy in memory —
+ * the stored key itself is untouched; throws 'locked' when it is not unlocked
+ * so the caller can run the unlock flow and retry.
+ */
+export async function revocationCertificate(email: string, fingerprint?: string): Promise<string> {
+  const ring = load(email);
+  if (!ring) throw new Error('No key for that address on this device.');
+  const want = fingerprint?.replace(/\s+/g, '').toLowerCase() ?? null;
+  let rec: KeyRecord | null = null;
+  for (const r of [ring.active, ...ring.retired]) {
+    if (!want || (await rawFingerprint(r)).toLowerCase() === want) { rec = r; break; }
+  }
+  if (!rec) throw new Error('That key is not on this device.');
+  if (rec.revocationCertificate) return rec.revocationCertificate;
+  const priv = sessionKeys.get(await rawFingerprint(rec));
+  if (!priv) throw new Error('locked');
+  const { publicKey } = await openpgp.revokeKey({
+    key: priv,
+    reasonForRevocation: { flag: openpgp.enums.reasonForRevocation.noReason, string: '' },
+    format: 'object',
+  });
+  const cert = await publicKey.getRevocationCertificate();
+  if (typeof cert !== 'string') throw new Error('Could not derive a revocation certificate.');
+  return cert;
+}
+
 export async function saveBackup(email: string, fingerprint?: string): Promise<string | null> {
   const ring = load(email);
   if (!ring) return null;

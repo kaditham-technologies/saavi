@@ -81,6 +81,17 @@ describe.skipIf(!interop)('GnuPG interop', () => {
     expect(status).toMatch(/GOODSIG/);
   });
 
+  it('gpg accepts our revocation certificate and marks the key revoked', async () => {
+    const rec = await pgp.generateKeys(ME, 'Interop', PASS);
+    writeFileSync(join(home, 'pub.asc'), rec.publicKey);
+    gpg(['--import', join(home, 'pub.asc')]);
+    writeFileSync(join(home, 'rev.asc'), rec.revocationCertificate!);
+    gpg(['--import', join(home, 'rev.asc')]);
+    const cols = String(gpg(['--with-colons', '--list-keys'], { encoding: 'utf8' }));
+    const pub = cols.split('\n').find((l) => l.startsWith('pub:'));
+    expect(pub?.split(':')[1]).toBe('r');
+  });
+
   it('we decrypt what gpg encrypted to our key', async () => {
     const rec = await pgp.generateKeys(ME, 'Interop', PASS);
     await pgp.unlockPrivateKey(ME, PASS);

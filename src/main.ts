@@ -8,7 +8,7 @@ import * as pgp from './pgp';
 import * as gpg from './gpg';
 import * as keychain from './keychain';
 import { wkdProbe } from './wkd';
-import { vksLookup, vksLookupKeyId } from './vks';
+import { vksLookup, vksLookupKeyId, vksUpload, vksRequestVerify } from './vks';
 import { ask, confirmBox, notice } from './ui';
 import { generatePassphrase, passphraseBits, describeStrength } from './passphrase';
 import * as update from './update';
@@ -532,6 +532,41 @@ async function openDetails(): Promise<void> {
         if (p !== null) status(p ? `Public key saved to ${p}` : 'Public key downloaded.');
       });
       action('Show public key', async () => { await notice('Public key', 'Share this freely — it is what others seal to.', pub); });
+      if (s.isActive) {
+        action('Publish key…', async () => {
+          const go = await ask({
+            title: 'Publish to keys.openpgp.org',
+            message: `Uploads the PUBLIC key for ${s.email}. The keyserver then mails that address a verification link — the key becomes findable by email once the link is clicked, and by fingerprint right away.`,
+            ok: 'Publish',
+          });
+          if (!go) return;
+          const up = await vksUpload(pub);
+          const st = Object.entries(up.status).find(([a]) => a.toLowerCase() === s.email.toLowerCase())?.[1];
+          if (st === 'published') return notice('Published', `${s.email} is verified on keys.openpgp.org — the key is findable by email.`);
+          await vksRequestVerify(up.token, [s.email]);
+          await notice('One step left', `Uploaded. A verification message from keys.openpgp.org is on its way to ${s.email} — click its link to make the key findable by email. It is findable by fingerprint already.`);
+        });
+      }
+      action('Revocation certificate…', async () => {
+        const go = await ask({
+          title: 'Revocation certificate',
+          message: 'A signed "this key is no longer valid" note. Keep the file somewhere safe, SEPARATE from the key backup — anyone holding it can retire your key. If the key is ever lost or compromised, importing and publishing this certificate revokes it everywhere.',
+          ok: 'Save…',
+        });
+        if (!go) return;
+        const saveCert = async (): Promise<void> => {
+          const cert = await pgp.revocationCertificate(s.email, s.fpr);
+          const p = await saveTextFile(`${s.email}-revocation-certificate.asc`, cert);
+          if (p !== null) status(p ? `Revocation certificate saved to ${p}` : 'Revocation certificate downloaded.');
+        };
+        try { await saveCert(); } catch (e) {
+          // Keys from before certificates were captured at generation (and
+          // imported ones) derive the certificate from the unlocked key.
+          if (errMsg(e) !== 'locked') throw e;
+          if (await tryKeychainUnlock(s.email, s.fpr)) return saveCert();
+          openModal('unlock', { email: s.email, fingerprint: s.fpr, then: () => { void saveCert().catch((e2) => notice('Not done', errMsg(e2))); } });
+        }
+      });
     }
   } else {
     const s = sel;
@@ -596,6 +631,34 @@ async function openDetails(): Promise<void> {
       });
     }
     if (k.has_secret) {
+      action('Publish key…', async () => {
+        const emails = [...new Set(k.uids.map((u) => u.email).filter(Boolean))];
+        const go = await ask({
+          title: 'Publish to keys.openpgp.org',
+          message: emails.length
+            ? `Uploads this PUBLIC key. The keyserver mails each of its addresses (${emails.join(', ')}) a verification link — the key becomes findable by email once confirmed, and by fingerprint right away.`
+            : 'Uploads this PUBLIC key. It carries no email address, so it will be findable by fingerprint only.',
+          ok: 'Publish',
+        });
+        if (!go) return;
+        const up = await vksUpload(await gpg.exportPublic(k.fingerprint));
+        const pending = emails.filter((e) => Object.entries(up.status).find(([a]) => a.toLowerCase() === e.toLowerCase())?.[1] !== 'published');
+        if (!emails.length) return notice('Published', 'Uploaded — findable by fingerprint.');
+        if (!pending.length) return notice('Published', 'Every address on this key is verified — it is findable by email.');
+        await vksRequestVerify(up.token, pending);
+        await notice('One step left', `Uploaded. Verification messages are on their way to ${pending.join(', ')} — the key is findable by fingerprint already, by email once confirmed.`);
+      });
+      action('Revocation certificate…', async () => {
+        const go = await ask({
+          title: 'Revocation certificate',
+          message: 'A signed "this key is no longer valid" note; gpg will ask for the key\'s passphrase. Keep the file somewhere safe, SEPARATE from any key backup — anyone holding it can retire the key. If the key is ever lost or compromised, importing and publishing it revokes the key everywhere.',
+          ok: 'Create…',
+        });
+        if (!go) return;
+        const cert = await gpg.genRevoke(k.fingerprint);
+        const p = await saveTextFile(`${(k.uids[0]?.email || k.key_id).replace(/[^a-z0-9.@-]/gi, '_')}-revocation-certificate.asc`, cert);
+        if (p !== null) status(p ? `Revocation certificate saved to ${p}` : 'Revocation certificate downloaded.');
+      });
       action('Set expiry…', async () => {
         const r = await ask({
           title: 'Key expiry', message: 'An expiry is a safety net: a lost key stops being valid on its own. You can extend it any time before (or after) it passes.',

@@ -864,6 +864,25 @@ pub async fn gpg_sign_key(fingerprint: String, signer: String, local: bool) -> R
     .await
 }
 
+/// A revocation certificate for one of the user's own keys — the signed
+/// "this key is no longer valid" note gpg itself writes at key creation.
+/// `--gen-revoke` has no `--quick-` variant and refuses batch mode, so
+/// `--no-batch` overrides the standing `--batch` and the interactive
+/// prompts are answered over `--command-fd` (yes; reason 0 "no reason";
+/// no description; confirm). pinentry still asks for the passphrase.
+#[tauri::command]
+pub async fn gpg_gen_revoke(fingerprint: String) -> Result<String, String> {
+    blocking(move || {
+        let fpr = check_fpr(&fingerprint)?;
+        let r = run(&["--no-batch", "--command-fd", "0", "--gen-revoke", &fpr], b"y\n0\n\ny\n")?;
+        if !r.status_ok || r.stdout.is_empty() {
+            return Err(human(&r, "gpg did not create the revocation certificate (cancelled?)."));
+        }
+        Ok(String::from_utf8_lossy(&r.stdout).into_owned())
+    })
+    .await
+}
+
 /// Fetch a key by fingerprint from keys.openpgp.org (verified-email keyserver).
 #[tauri::command]
 pub async fn gpg_recv_key(app: tauri::AppHandle, fingerprint: String) -> Result<ImportOutcome, String> {
