@@ -42,7 +42,10 @@ jobs:
           - os: ubuntu-22.04
             args: --bundles deb,appimage
           - os: macos-latest
-            args: --target universal-apple-darwin --bundles dmg
+            # `app` alongside dmg: the .app bundle is what createUpdaterArtifacts
+            # tars and signs for the in-app updater — dmg alone leaves macOS out
+            # of updater.json.
+            args: --target universal-apple-darwin --bundles dmg,app
           - os: windows-latest
             args: --bundles msi,nsis
     runs-on: ${{ matrix.os }}
