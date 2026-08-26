@@ -25,9 +25,16 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhDODQwQjY0NTgyQTRDMkQKUldRdFRDcFlaQXVFakNKN3Rmb0FzVHh4dHFKRlhqRUhoN3dSOVN3RFFicHpMM3ZDNFlpS2NOZ0kK",
+      "endpoints": ["https://kaditham.ie/wp-content/uploads/saavi/updater.json"]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

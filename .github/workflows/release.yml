@@ -64,6 +64,10 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # In-app updater: packages are minisign-signed with this key; the
+          # matching public key is baked into the binary (tauri.conf.json).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Saavi ${{ github.ref_name }}
@@ -87,6 +91,10 @@ jobs:
           printf '%s' "$GPG_SIGNING_KEY" | gpg --batch --import
           mkdir out && cd out
           gh release download "$GITHUB_REF_NAME" --dir .
+          # tauri-action's updater manifest is ALSO named latest.json; it
+          # becomes updater.json (what the in-app updater fetches, via the
+          # site mirror) so ours keeps the name the download page reads.
+          if [ -f latest.json ]; then mv latest.json updater.json; fi
           shopt -s nullglob
           assets=( *.deb *.AppImage *.dmg *.msi *.exe *.rpm )
           [ ${#assets[@]} -gt 0 ] || { echo "::error::no installers on the release" >&2; exit 1; }
@@ -127,4 +135,5 @@ jobs:
           } > latest.json
           python3 -m json.tool latest.json > /dev/null
           gh release upload "$GITHUB_REF_NAME" ./*.sig saavi_pubkey.gpg SHA256SUMS SHA256SUMS.asc latest.json --clobber
+          if [ -f updater.json ]; then gh release upload "$GITHUB_REF_NAME" updater.json --clobber; fi
           gh release edit "$GITHUB_REF_NAME" --draft=false

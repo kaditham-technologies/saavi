@@ -83,12 +83,22 @@ front end to the installed `gpg` binary (`src-tauri/src/gpg.rs`):
   draft-ietf-openpgp-pqc algorithms, at which point key rotation inside
   Saavi is the migration path.
 
-## Update check (opt-in)
+## Updates
 
-With **Check for updates** ticked, Saavi fetches
-`https://kaditham.ie/wp-content/uploads/saavi/latest.json` at most once a
-day and shows a pill if the version there is newer. It never downloads or
-installs anything: the manifest can only make Saavi *say* a release
-exists; installing is still you downloading a signed build and verifying
-it. The request carries no identifiers and goes to our own site, not
-GitHub. Off by default.
+With **Check for updates** ticked (the default; untick to opt out), Saavi
+fetches `https://kaditham.ie/wp-content/uploads/saavi/latest.json` once
+per launch and shows a banner if the version there is newer. The request
+carries no identifiers and goes to our own site, not GitHub.
+
+When a newer release exists, Saavi downloads the update package and
+verifies its signature against a public key **baked into the running
+binary** (a minisign key, separate from the GPG release key) before
+anything is installed — a package that does not verify is discarded.
+Installing still takes your explicit click on **Install & restart**;
+nothing is ever installed silently. The manifest alone can only make
+Saavi *say* a release exists.
+
+Installs the updater cannot serve — a `.deb`, where updates belong to
+dpkg/apt — keep the manual flow: the banner opens the download page, and
+every installer remains GPG-signed with `SHA256SUMS` + `SHA256SUMS.asc`
+for out-of-band verification.

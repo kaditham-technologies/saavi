@@ -145,6 +145,51 @@ async function runUpdateCheck(force = false): Promise<void> {
     updateBanner.hidden = false;
   }
   if (update.seen() !== info.version) { update.markSeen(info.version); status(`Saavi ${info.version} is available — see the download page.`); }
+  void tryAutoUpdate();
+}
+
+// One-click update through the Tauri updater: the package is downloaded up
+// front and its minisign signature is checked against the public key baked
+// into THIS binary before anything installs — the user still clicks.
+// Installs the updater cannot serve (a .deb, or a plain browser) keep the
+// open-the-download-page button.
+let installReady: (() => Promise<void>) | null = null;
+async function tryAutoUpdate(): Promise<void> {
+  if (!('__TAURI_INTERNALS__' in window)) return;
+  const btn = $('update-banner-get') as HTMLButtonElement;
+  try {
+    const { check } = await import('@tauri-apps/plugin-updater');
+    const upd = await check();
+    if (!upd) return;
+    btn.disabled = true;
+    btn.textContent = 'Downloading…';
+    let total = 0, got = 0;
+    await upd.download((e) => {
+      if (e.event === 'Started') total = e.data.contentLength ?? 0;
+      else if (e.event === 'Progress' && total) {
+        got += e.data.chunkLength;
+        btn.textContent = `Downloading… ${Math.min(99, Math.round((got / total) * 100))}%`;
+      }
+    });
+    installReady = async () => {
+      btn.disabled = true;
+      btn.textContent = 'Installing…';
+      await upd.install();
+      const { relaunch } = await import('@tauri-apps/plugin-process');
+      await relaunch();
+    };
+    btn.textContent = 'Install & restart';
+    btn.disabled = false;
+    updatePill.textContent = `Saavi ${upd.version} ready to install`;
+    status(`Saavi ${upd.version} downloaded and verified — install when ready.`);
+  } catch (e) {
+    // A failed download or a signature that does not verify must never
+    // brick the banner — fall back to the manual, browser flow.
+    installReady = null;
+    btn.disabled = false;
+    btn.textContent = 'Download update';
+    status(`In-app update unavailable (${errMsg(e)}) — the download page still works.`);
+  }
 }
 updateOpt.checked = update.enabled();
 updateOpt.addEventListener('change', () => {
@@ -152,7 +197,10 @@ updateOpt.addEventListener('change', () => {
   if (updateOpt.checked) void runUpdateCheck(true);
   else { updatePill.hidden = true; updateBanner.hidden = true; }
 });
-const openDownload = () => { void update.openDownloadPage().catch((e) => status(`Could not open the browser: ${errMsg(e)}`)); };
+const openDownload = () => {
+  if (installReady) { void installReady().catch((e) => status(`Install failed: ${errMsg(e)} — the download page still works.`)); return; }
+  void update.openDownloadPage().catch((e) => status(`Could not open the browser: ${errMsg(e)}`));
+};
 updatePill.addEventListener('click', openDownload);
 $('update-banner-get').addEventListener('click', openDownload);
 $('update-banner-x').addEventListener('click', () => {

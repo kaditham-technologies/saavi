@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **One-click updates.** When the banner announces a new release, Saavi now
+  downloads the update package itself and verifies its signature against a
+  public key baked into the running binary (Tauri updater, minisign — a
+  separate key from the GPG release signing key) before offering a single
+  **Install & restart** button. Nothing installs without that click; a
+  package that fails verification is discarded and the browser flow
+  returns. `.deb` installs keep the download-page flow — Debian updates
+  belong to apt.
 - **The update check runs on every launch.** It was capped at once per
   calendar day, so "restart to see if there's an update" silently did
   nothing for the rest of the day. It is still a single GET of our own
