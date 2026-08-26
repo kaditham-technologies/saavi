@@ -161,6 +161,7 @@ button:focus:not(:focus-visible) { outline: none; }
 }
 .status > #status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-right { display: flex; align-items: center; gap: 12px; flex: none; }
+.app-version { font-size: 11px; font-family: var(--mono); color: var(--ink-3); cursor: default; }
 .update-opt { font-size: 11px; font-family: var(--mono); color: var(--ink-3); align-items: center; }
 .update-opt input { margin: 0; }
 .update-pill {

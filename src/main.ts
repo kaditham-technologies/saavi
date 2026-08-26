@@ -123,6 +123,8 @@ for (const ev of ['pointerdown', 'keydown', 'mousemove', 'wheel', 'focus'] as co
 armIdle();
 
 // ---------- update indicator (on by default, check-only) ----------
+$('app-version').textContent = `v${__APP_VERSION__}`;
+$('app-version').title = `This install is Saavi ${__APP_VERSION__}.`;
 const updateOpt = $('update-opt') as HTMLInputElement;
 const updatePill = $('update-pill') as HTMLButtonElement;
 const updateBanner = $('update-banner');

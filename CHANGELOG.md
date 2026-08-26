@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The running version is visible.** A quiet `vX.Y.Z` sits in the status
+  bar next to the update control — "what version am I on?" no longer needs
+  the package manager.
 - **Publish your key to keys.openpgp.org.** A new action in key details
   uploads the public key (own keys only — Saavi store, or system keys with
   their secret half here). The key is findable by fingerprint immediately;
