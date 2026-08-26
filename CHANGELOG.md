@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **End-to-end tests for the UI** (`e2e/`, Playwright): the browser build is
+  driven for real — generate and rotate keys, click-for-details, a full
+  seal→unseal round-trip, wrong-passphrase rejection, Lock, the update
+  banner and keyserver publishing against a mocked network. Ten scenarios,
+  a new `e2e` CI job — and since the browser build is exactly the shared
+  core the webmail vendors, this is also the parity floor for it.
+
 ## 0.3.4 — 2026-08-26
 
 - **One-click updates.** When the banner announces a new release, Saavi now

@@ -74,8 +74,12 @@ should get a CHANGELOG line.
 
 - [x] **Tests.** `tests/` covers the keystore, import, rotation, seal /
       unseal, tamper detection, WKD hashing (draft-koch vector) and the
-      WKD user-ID check. Still untested: `main.ts` (UI) and `saveBackup`
-      (needs the Tauri shell).
+      WKD user-ID check. `e2e/` (Playwright, CI job `e2e`) drives the real
+      UI in a browser: generate/rotate, click-for-details, seal→unseal
+      round-trip, wrong-passphrase, Lock, update banner and keyserver
+      publish against a mocked network. Still untested: the Tauri-only
+      half (system GnuPG UI, native dialogs, installers — needs
+      tauri-driver).
 - [ ] **Formatter/linter** (prettier + eslint or biome) wired into CI, so
       CONTRIBUTING can promise it again.
 - [ ] **Issue / PR templates**, `CODEOWNERS`.
