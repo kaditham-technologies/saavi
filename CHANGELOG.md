@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.4 — 2026-08-26
 
 - **One-click updates.** When the banner announces a new release, Saavi now
   downloads the update package itself and verifies its signature against a
