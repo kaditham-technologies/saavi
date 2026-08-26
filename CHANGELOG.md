@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Header polish: the top-left mark is now the Saavi key tile (the launcher
+  icon, inlined SVG) instead of the Tamil "சா" letters, and the tagline
+  reads "Friendly desktop OpenPGP".
+
 ## 0.3.2 — 2026-08-26
 
 - **The running version is visible.** A quiet `vX.Y.Z` sits in the status

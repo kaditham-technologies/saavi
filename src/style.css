@@ -81,11 +81,10 @@ button:focus:not(:focus-visible) { outline: none; }
   background: var(--paper-2);
 }
 .brand { display: flex; align-items: center; gap: 9px; }
-.mark {
-  display: grid; place-items: center;
-  width: 26px; height: 26px; border-radius: 8px;
-  background: var(--accent); color: #fff; font-size: 12px;
-}
+/* The launcher tile itself (icon-source.svg, inlined in index.html): it
+   carries its own violet gradient and rounded corners, so no background. */
+.mark { display: grid; place-items: center; width: 26px; height: 26px; }
+.mark svg { width: 26px; height: 26px; display: block; }
 .sub { font-family: var(--serif); font-style: italic; font-size: 12px; color: var(--ink-3); }
 .tabs {
   display: flex; gap: 2px; margin-left: auto;
