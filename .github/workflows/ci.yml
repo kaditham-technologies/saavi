@@ -48,7 +48,10 @@ jobs:
             libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev
       - run: npm ci
       - run: cargo install tauri-cli --version '^2' --locked
-      - run: cargo tauri build
+      # No updater artifacts outside a release: with createUpdaterArtifacts
+      # on, plain `tauri build` demands TAURI_SIGNING_PRIVATE_KEY — CI has
+      # no business holding that key, so CI builds override it off.
+      - run: cargo tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
       - uses: actions/upload-artifact@v7
         with:
           name: saavi-linux
@@ -81,7 +84,7 @@ jobs:
           targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - run: npm ci
       - run: cargo install tauri-cli --version '^2' --locked
-      - run: cargo tauri build ${{ matrix.args }}
+      - run: cargo tauri build ${{ matrix.args }} --config '{"bundle":{"createUpdaterArtifacts":false}}'
       - uses: actions/upload-artifact@v7
         with:
           name: saavi-${{ matrix.os }}
