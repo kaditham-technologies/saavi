@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 — 2026-08-26
 
 - **The running version is visible.** A quiet `vX.Y.Z` sits in the status
   bar next to the update control — "what version am I on?" no longer needs
