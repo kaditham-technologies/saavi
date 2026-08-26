@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 — 2026-08-26
+
+- **Key details on a single click.** Clicking a key row now opens the details
+  dialog directly, in both the Saavi store and System GnuPG views — it used to
+  need a double-click or the toolbar's Details button, so a plain click looked
+  like it did nothing.
+
 ## 0.3.0 — 2026-08-25
 
 ### Security (external audit + review response)
