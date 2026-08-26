@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.3 — 2026-08-26
 
 - Header polish: the top-left mark is now the Saavi key tile (the launcher
   icon, inlined SVG) instead of the Tamil "சா" letters, and the tagline
