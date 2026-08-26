@@ -4,7 +4,8 @@
 
 - Header polish: the top-left mark is now the Saavi key tile (the launcher
   icon, inlined SVG) instead of the Tamil "சா" letters, and the tagline
-  reads "Friendly desktop OpenPGP".
+  reads "Friendly desktop OpenPGP" — here and everywhere else it appeared
+  (README, package metadata, the installer's short description).
 
 ## 0.3.2 — 2026-08-26
 

@@ -1,6 +1,6 @@
 # <img src="src-tauri/icons/icon.png" width="64" align="center" alt=""> Saavi
 
-**Saavi** (சாவி, Tamil for *key*) — the friendliest face of GPG.
+**Saavi** (சாவி, Tamil for *key*) — friendly desktop OpenPGP.
 
 A small, fast desktop app for OpenPGP keys and sealed text: generate,
 import, back up and manage keys in a keyring you can actually read, and

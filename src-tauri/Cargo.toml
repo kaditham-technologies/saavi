@@ -1,7 +1,7 @@
 [package]
 name = "saavi"
 version = "0.3.2"
-description = "Saavi — the friendliest face of GPG."
+description = "Saavi — friendly desktop OpenPGP."
 license = "MIT"
 repository = "https://github.com/kaditham-technologies/saavi"
 edition = "2021"

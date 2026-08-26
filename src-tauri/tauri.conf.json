@@ -37,7 +37,7 @@
       "icons/icon.ico"
     ],
     "category": "Utility",
-    "shortDescription": "The friendliest face of GPG.",
+    "shortDescription": "Friendly desktop OpenPGP.",
     "longDescription": "Saavi manages OpenPGP keys and seals/unseals text on your device. Keys never leave it; recipients are found over WKD.",
     "macOS": {
       "minimumSystemVersion": "10.15"
