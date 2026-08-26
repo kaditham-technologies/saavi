@@ -1,13 +1,13 @@
-// Update indicator — check only, never download. Opt-in; at most once a
-// day; one GET of the static release manifest our own download page
-// publishes (not GitHub, so no third party sees the app start). The
-// manifest can only make Saavi *say* a newer version exists: installing
-// is still the user downloading and verifying a signed release.
+// Update indicator — check only, never download. On every launch (a
+// once-a-day stamp used to gate this, which made "restart to check"
+// silently do nothing); one GET of the static release manifest our own
+// download page publishes (not GitHub, so no third party sees the app
+// start). The manifest can only make Saavi *say* a newer version exists:
+// installing is still the user downloading and verifying a signed release.
 
 export const MANIFEST_URL = 'https://kaditham.ie/wp-content/uploads/saavi/latest.json';
 export const DOWNLOAD_PAGE = 'https://kaditham.ie/saavi/';
 const OPT_KEY = 'saavi-update-check'; // 'on' | 'off' (absent = on, the default)
-const LAST_KEY = 'saavi-update-last'; // YYYY-MM-DD of the last check
 const SEEN_KEY = 'saavi-update-seen'; // newest version the user was told about
 const DISMISS_KEY = 'saavi-update-dismissed'; // version whose banner was dismissed
 
@@ -20,7 +20,6 @@ export function enabled(): boolean {
 }
 export function setEnabled(on: boolean): void {
   localStorage.setItem(OPT_KEY, on ? 'on' : 'off');
-  if (!on) localStorage.removeItem(LAST_KEY);
 }
 
 /** a > b for dotted numeric versions ("0.2.10" > "0.2.9"); pre-release
@@ -44,11 +43,8 @@ async function get(url: string): Promise<Response> {
 }
 
 /** Fetch the manifest and compare; null when current, unreachable, or
- *  malformed. `force` ignores the once-a-day stamp. */
-export async function check(current: string, force = false): Promise<UpdateInfo | null> {
-  const today = new Date().toISOString().slice(0, 10);
-  if (!force && localStorage.getItem(LAST_KEY) === today) return null;
-  localStorage.setItem(LAST_KEY, today);
+ *  malformed. */
+export async function check(current: string): Promise<UpdateInfo | null> {
   try {
     const r = await get(MANIFEST_URL);
     if (!r.ok) return null;

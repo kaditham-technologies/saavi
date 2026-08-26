@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **The update check runs on every launch.** It was capped at once per
+  calendar day, so "restart to see if there's an update" silently did
+  nothing for the rest of the day. It is still a single GET of our own
+  static manifest — nothing else changes: no third party, no identifiers,
+  nothing downloaded or installed.
+
 ## 0.3.3 — 2026-08-26
 
 - Header polish: the top-left mark is now the Saavi key tile (the launcher

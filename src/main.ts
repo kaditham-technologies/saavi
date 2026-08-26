@@ -132,7 +132,7 @@ const updateBannerText = $('update-banner-text');
 let offeredVersion: string | null = null;
 async function runUpdateCheck(force = false): Promise<void> {
   if (!update.enabled()) return;
-  const info = await update.check(__APP_VERSION__, force);
+  const info = await update.check(__APP_VERSION__);
   if (!info) { if (force) status(`Saavi ${__APP_VERSION__} is the latest version.`); return; }
   offeredVersion = info.version;
   updatePill.textContent = `Saavi ${info.version} available`;
