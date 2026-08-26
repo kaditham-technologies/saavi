@@ -5,6 +5,7 @@
 
 mod gpg;
 mod keychain;
+mod selfupdate;
 
 fn main() {
     tauri::Builder::default()
@@ -35,6 +36,8 @@ fn main() {
             gpg::gpg_gen_revoke,
             gpg::gpg_encrypt_file,
             gpg::gpg_decrypt_file,
+            selfupdate::deb_capable,
+            selfupdate::deb_install,
             keychain::keychain_available,
             keychain::keychain_get,
             keychain::keychain_set,

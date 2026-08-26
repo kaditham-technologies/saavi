@@ -8,8 +8,13 @@
   separate key from the GPG release signing key) before offering a single
   **Install & restart** button. Nothing installs without that click; a
   package that fails verification is discarded and the browser flow
-  returns. `.deb` installs keep the download-page flow — Debian updates
-  belong to apt.
+  returns.
+- **One-click updates for .deb installs too.** The Tauri updater cannot
+  drive dpkg, so Saavi walks the manual chain itself: it verifies
+  `SHA256SUMS.asc` against the release key pinned in the app, checks the
+  downloaded `.deb` against its signed checksum, and installs on your
+  click through polkit's system authentication (`pkexec dpkg -i`), then
+  relaunches.
 - **The update check runs on every launch.** It was capped at once per
   calendar day, so "restart to see if there's an update" silently did
   nothing for the rest of the day. It is still a single GET of our own

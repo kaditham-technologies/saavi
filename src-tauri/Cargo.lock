@@ -3364,6 +3364,7 @@ version = "0.3.4"
 dependencies = [
  "keyring",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

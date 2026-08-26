@@ -16,6 +16,14 @@
     "process:allow-restart",
     "updater:default",
     {
+      "identifier": "fs:allow-mkdir",
+      "allow": [{ "path": "$TEMP/saavi-update" }]
+    },
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [{ "path": "$TEMP/saavi-update/saavi-update.deb" }]
+    },
+    {
       "identifier": "http:default",
       "allow": [
         {

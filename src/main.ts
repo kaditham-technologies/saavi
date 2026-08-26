@@ -145,22 +145,25 @@ async function runUpdateCheck(force = false): Promise<void> {
     updateBanner.hidden = false;
   }
   if (update.seen() !== info.version) { update.markSeen(info.version); status(`Saavi ${info.version} is available — see the download page.`); }
-  void tryAutoUpdate();
+  void tryAutoUpdate(info);
 }
 
-// One-click update through the Tauri updater: the package is downloaded up
-// front and its minisign signature is checked against the public key baked
-// into THIS binary before anything installs — the user still clicks.
-// Installs the updater cannot serve (a .deb, or a plain browser) keep the
-// open-the-download-page button.
+// One-click update: the package is downloaded up front and verified before
+// anything installs — the user still clicks. Two verified paths: the Tauri
+// updater (minisign key baked into THIS binary; AppImage/Windows/macOS),
+// and the .deb path (GPG chain against the pinned release key, then dpkg
+// through polkit). A plain browser keeps the open-the-download-page button.
 let installReady: (() => Promise<void>) | null = null;
-async function tryAutoUpdate(): Promise<void> {
+async function tryAutoUpdate(info: update.UpdateInfo): Promise<void> {
   if (!('__TAURI_INTERNALS__' in window)) return;
   const btn = $('update-banner-get') as HTMLButtonElement;
   try {
-    const { check } = await import('@tauri-apps/plugin-updater');
-    const upd = await check();
-    if (!upd) return;
+    let upd: Awaited<ReturnType<typeof import('@tauri-apps/plugin-updater')['check']>> = null;
+    try {
+      const { check } = await import('@tauri-apps/plugin-updater');
+      upd = await check();
+    } catch { upd = null; /* endpoint missing or unsupported install — the .deb path may still fit */ }
+    if (!upd) return await tryDebUpdate(info, btn);
     btn.disabled = true;
     btn.textContent = 'Downloading…';
     let total = 0, got = 0;
@@ -190,6 +193,33 @@ async function tryAutoUpdate(): Promise<void> {
     btn.textContent = 'Download update';
     status(`In-app update unavailable (${errMsg(e)}) — the download page still works.`);
   }
+}
+
+// The .deb self-update: verify the GPG chain (SHA256SUMS.asc against the
+// release key pinned in the app, then the file's sha256), stage the file
+// under $TEMP, and let dpkg install it through polkit's own authentication
+// dialog on the user's click. Errors bubble to tryAutoUpdate's fallback.
+async function tryDebUpdate(info: update.UpdateInfo, btn: HTMLButtonElement): Promise<void> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  if (!await invoke<boolean>('deb_capable').catch(() => false)) return;
+  if (!info.deb || !info.sumsSigned) return;
+  btn.disabled = true;
+  btn.textContent = 'Downloading…';
+  const bytes = await update.fetchVerifiedDeb(info);
+  const { mkdir, writeFile, BaseDirectory } = await import('@tauri-apps/plugin-fs');
+  await mkdir('saavi-update', { baseDir: BaseDirectory.Temp, recursive: true }).catch(() => { /* already there */ });
+  await writeFile('saavi-update/saavi-update.deb', bytes, { baseDir: BaseDirectory.Temp });
+  installReady = async () => {
+    btn.disabled = true;
+    btn.textContent = 'Installing…';
+    await invoke('deb_install');
+    const { relaunch } = await import('@tauri-apps/plugin-process');
+    await relaunch();
+  };
+  btn.textContent = 'Install & restart';
+  btn.disabled = false;
+  updatePill.textContent = `Saavi ${info.version} ready to install`;
+  status(`Saavi ${info.version} downloaded and verified — install when ready.`);
 }
 updateOpt.checked = update.enabled();
 updateOpt.addEventListener('change', () => {

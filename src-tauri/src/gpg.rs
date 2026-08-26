@@ -159,7 +159,7 @@ fn human(r: &Run, fallback: &str) -> String {
 /// Native confirmation for actions that change state in the user's REAL
 /// ~/.gnupg. Same spirit as the file-path rule: the webview alone must not
 /// be able to poison the system keyring (which git, pass, mutt also read).
-fn confirm_native(app: &tauri::AppHandle, title: &str, message: &str) -> bool {
+pub(crate) fn confirm_native(app: &tauri::AppHandle, title: &str, message: &str) -> bool {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
     app.dialog()
         .message(message)

@@ -98,7 +98,12 @@ Installing still takes your explicit click on **Install & restart**;
 nothing is ever installed silently. The manifest alone can only make
 Saavi *say* a release exists.
 
-Installs the updater cannot serve — a `.deb`, where updates belong to
-dpkg/apt — keep the manual flow: the banner opens the download page, and
-every installer remains GPG-signed with `SHA256SUMS` + `SHA256SUMS.asc`
-for out-of-band verification.
+A `.deb` install updates through dpkg instead (the Tauri updater cannot
+drive it): Saavi fetches `SHA256SUMS.asc`, verifies the clearsigned list
+against the **release key pinned in the app** (the same key the download
+page documents), checks the downloaded `.deb` against its entry, and only
+then offers **Install & restart** — which asks through polkit's own
+system authentication dialog before `dpkg -i` runs. The chain is the same
+one manual verification walks; the app just walks it for you. Every
+installer remains GPG-signed with `SHA256SUMS` + `SHA256SUMS.asc` for
+out-of-band verification, and the browser flow stays as the fallback.
