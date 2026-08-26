@@ -299,7 +299,6 @@ function rowFor(cells: { dot: boolean; dotTitle: string; addr: string; id: strin
   row.append(dot, el('span', 'c-addr', cells.addr), el('span', 'c-id', cells.id), el('span', 'c-date', cells.date),
     el('span', 'chip c-end' + (cells.chipOn ? ' chip-on' : ''), cells.chip));
   row.title = cells.title;
-  row.addEventListener('dblclick', () => void openDetails());
   return row;
 }
 
@@ -372,6 +371,7 @@ async function refreshKeys(): Promise<void> {
     row.addEventListener('click', () => {
       sel = { kind: 'saavi', email, fpr: info.fingerprint, isActive: info.isActive };
       markSelected(rows, row);
+      void openDetails();
     });
     rows.append(row);
   }
@@ -421,6 +421,7 @@ async function refreshSystemKeys(rows: HTMLElement): Promise<void> {
     row.addEventListener('click', () => {
       sel = { kind: 'system', fpr: k.fingerprint, email: k.uids[0]?.email ?? '', hasSecret: k.has_secret };
       markSelected(rows, row);
+      void openDetails();
     });
     rows.append(row);
   }
