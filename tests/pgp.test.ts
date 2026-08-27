@@ -71,12 +71,21 @@ describe('keystore', () => {
 
 describe('import', () => {
   it('imports a locked export only with its own passphrase, and starts unlocked', async () => {
-    const rec = await pgp.generateKeys('src@example.org', 'Src', PASS);
-    await expect(pgp.importKey(ME, rec.privateKey, 'wrong')).rejects.toThrow(/does not unlock/);
+    const { privateKey, publicKey } = await openpgp.generateKey({
+      userIDs: [{ name: 'Me', email: ME }], type: 'ecc', curve: 'curve25519Legacy',
+      format: 'armored', passphrase: PASS,
+    });
+    await expect(pgp.importKey(ME, privateKey, 'wrong')).rejects.toThrow(/does not unlock/);
     expect(pgp.keysFor(ME)).toBeNull();
-    await pgp.importKey(ME, `Saavi key backup\n\n${rec.privateKey}\n\n${rec.publicKey}\n`, PASS);
+    await pgp.importKey(ME, `Saavi key backup\n\n${privateKey}\n\n${publicKey}\n`, PASS);
     expect(pgp.isUnlocked(ME)).toBe(true);
-    expect(pgp.keysFor(ME)!.publicKey.trim()).toBe(rec.publicKey.trim());
+    expect(pgp.keysFor(ME)!.publicKey.trim()).toBe(publicKey.trim());
+  });
+
+  it('refuses a key that carries no user ID for the address', async () => {
+    const rec = await pgp.generateKeys('src@example.org', 'Src', PASS);
+    await expect(pgp.importKey(ME, rec.privateKey, PASS)).rejects.toThrow(/no user ID for/);
+    expect(pgp.keysFor(ME)).toBeNull();
   });
 
   it('locks a cleartext export with the given passphrase before storing', async () => {
