@@ -81,9 +81,10 @@ export async function readCapped(r: Response, maxBytes = MAX_KEY_BYTES): Promise
 }
 
 /** True when one of the key's user IDs is exactly this address (the domain
- *  is authoritative for its own users, but a WKD server must not be able to
- *  hand back a key for someone else — GnuPG applies the same check). */
-function keyCarriesAddress(key: openpgp.Key, address: string): boolean {
+ *  is authoritative for its own users, but a key server must not be able to
+ *  hand back a key for someone else — GnuPG applies the same check).
+ *  Exported so every other discovery source applies the same rule. */
+export function keyCarriesAddress(key: openpgp.Key, address: string): boolean {
   const want = address.toLowerCase();
   return key.getUserIDs().some((uid) => {
     const m = uid.match(/<([^>]+)>\s*$/);
