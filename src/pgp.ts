@@ -13,6 +13,7 @@
 //    are stored passphrase-locked (OpenPGP S2K); unlocked keys live only in
 //    `sessionKeys`, in process memory.
 import * as openpgp from 'openpgp';
+import { keyCarriesAddress } from './wkd';
 
 const STORE_PREFIX = 'saavi-ring-';
 
@@ -177,6 +178,13 @@ export async function importKey(email: string, armoredSource: string, passphrase
     throw new Error('No PGP private key found. Paste an ASCII-armored export (gpg --export-secret-keys --armor) or a Saavi backup file.');
   }
   const parsed = await openpgp.readPrivateKey({ armoredKey: block[0] });
+  // A key that doesn't name this address in a user ID can be imported and
+  // even published, but every UID-checking lookup (ours included) will then
+  // silently refuse it — nobody could ever encrypt to this address. Refuse
+  // loudly now, while the person who can fix it is looking.
+  if (!keyCarriesAddress(parsed.toPublic(), email)) {
+    throw new Error(`This key carries no user ID for ${email}. Add one (gpg --quick-add-uid), export again, and re-import — otherwise no one can encrypt to you at this address.`);
+  }
   let unlocked: openpgp.PrivateKey;
   let storedArmor: string;
   if (parsed.isDecrypted()) {
