@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Saavi main window: open/save dialogs (the chosen paths are scoped by the dialog itself), text + binary file read/write for backups and sealed files, WKD key fetch over HTTPS, opening the download page in the browser, and the one-click updater (download is signature-verified against the key baked into this binary; install happens only on the user's click).",
+  "description": "Saavi main window: open/save dialogs (the chosen paths are scoped by the dialog itself), text + binary file read/write for backups and sealed files, opening the download page in the browser, and the one-click updater (download is signature-verified against the key baked into this binary; install happens only on the user's click). The Rust-side http client is scoped to exactly what the app needs — WKD paths on any domain, keys.openpgp.org, the Kaditham WKD publish endpoint, and the update manifest + release assets — so compromised frontend code gets no arbitrary-host exfiltration channel.",
   "windows": [
     "main"
   ],
@@ -26,9 +26,12 @@
     {
       "identifier": "http:default",
       "allow": [
-        {
-          "url": "https://**"
-        }
+        { "url": "https://*/.well-known/openpgpkey/**" },
+        { "url": "https://keys.openpgp.org/**" },
+        { "url": "https://kaditham.ie/wp-content/uploads/saavi/**" },
+        { "url": "https://mail.kaditham.ie/signup/api/wkd/publish" },
+        { "url": "https://github.com/kaditham-technologies/saavi/releases/download/**" },
+        { "url": "https://objects.githubusercontent.com/**" }
       ]
     }
   ]
