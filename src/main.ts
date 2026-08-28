@@ -1158,9 +1158,17 @@ $('seal-enc').addEventListener('click', async () => {
   if (!text.trim()) return sealFail('There is nothing to seal yet.');
   const toRaw = recipientsRaw();
   if (!toRaw) return sealFail('Name at least one recipient — an address, or a pasted public key.');
+  // Key discovery goes to the network (WKD, then a keyserver) and can take
+  // seconds — the button must say so, and a second click must not race the
+  // first.
+  const btn = $('seal-enc') as HTMLButtonElement;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Looking up keys…';
   try {
     if (source === 'system') return await sealWithSystem(text, toRaw);
     const { keys, missing, why } = await resolveSaaviRecipients(toRaw);
+    btn.textContent = label;
     if (missing.length) return sealFail(`No key found. ${why.join('. ')}. Ask them for their public key and paste it into To instead.`);
     const signer = signAs();
     if (signer && !await ensureUnlocked(signer)) return sealFail('Not sealed — the signing key stayed locked.');
@@ -1171,6 +1179,9 @@ $('seal-enc').addEventListener('click', async () => {
     sealShow(signer ? 'Sealed and signed message (also readable by you)' : 'Sealed message', await pgp.encryptText(text, keys, signer || undefined, { sign: !!signer }));
   } catch (e2) {
     sealFail(errMsg(e2));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
   }
 });
 

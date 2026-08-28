@@ -6,11 +6,14 @@ import * as openpgp from 'openpgp';
 import { readCapped } from './wkd';
 
 async function vksFetch(url: string, init?: RequestInit): Promise<Response> {
+  // Same rule as wkdFetch: an unresponsive keyserver must not stall the UI
+  // for the platform's TCP timeout.
+  const withTimeout = { signal: AbortSignal.timeout(10_000), ...init };
   if ('__TAURI_INTERNALS__' in window) {
     const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
-    return tauriFetch(url, init);
+    return tauriFetch(url, withTimeout);
   }
-  return fetch(url, init);
+  return fetch(url, withTimeout);
 }
 
 async function vksPost(path: string, body: unknown): Promise<Record<string, unknown>> {
