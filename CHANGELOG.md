@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Publish reaches your own domain.** "Publish key…" now also submits the
+  public key to Kaditham's Web Key Directory when the address's domain is
+  served there ("encrypted-email-ready" domains) — a confirmation mail to
+  the address itself is the ownership proof, same as the keyserver's flow.
+  Domains not served by Kaditham are skipped quietly; keys.openpgp.org
+  publishing is unchanged.
+
 ## 0.3.5 — 2026-08-28
 
 - **Sealing tells you it's working.** Sealing to an address kicks off key

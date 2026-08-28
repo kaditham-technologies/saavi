@@ -615,16 +615,20 @@ async function openDetails(): Promise<void> {
       if (s.isActive) {
         action('Publish key…', async () => {
           const go = await ask({
-            title: 'Publish to keys.openpgp.org',
-            message: `Uploads the PUBLIC key for ${s.email}. The keyserver then mails that address a verification link — the key becomes findable by email once the link is clicked, and by fingerprint right away.`,
+            title: 'Publish for discovery',
+            message: `Uploads the PUBLIC key for ${s.email} to keys.openpgp.org — and, if ${s.email.split('@')[1] ?? 'its domain'} is served by Kaditham key discovery, publishes it there for WKD too. Each service mails ${s.email} its own confirmation link; the key becomes findable once clicked (and by fingerprint right away on the keyserver).`,
             ok: 'Publish',
           });
           if (!go) return;
+          const kad = await kadithamWkdPublish(s.email, pub);
           const up = await vksUpload(pub);
           const st = Object.entries(up.status).find(([a]) => a.toLowerCase() === s.email.toLowerCase())?.[1];
-          if (st === 'published') return notice('Published', `${s.email} is verified on keys.openpgp.org — the key is findable by email.`);
+          const kadLine = kad === 'sent'
+            ? `\n\nKaditham WKD: a confirmation mail is on its way to ${s.email} as well — its link makes the key discoverable at your own domain.`
+            : '';
+          if (st === 'published') return notice('Published', `${s.email} is verified on keys.openpgp.org — the key is findable by email.${kadLine}`);
           await vksRequestVerify(up.token, [s.email]);
-          await notice('One step left', `Uploaded. A verification message from keys.openpgp.org is on its way to ${s.email} — click its link to make the key findable by email. It is findable by fingerprint already.`);
+          await notice('One step left', `Uploaded. A verification message from keys.openpgp.org is on its way to ${s.email} — click its link to make the key findable by email. It is findable by fingerprint already.${kadLine}`);
         });
       }
       action('Revocation certificate…', async () => {
@@ -1068,6 +1072,31 @@ function verdictInfos(verdicts: pgp.SigVerdict[], ownFprs: Set<string>): gpg.Sig
 
 /** Candidate verification keys for an unseal: every own key plus whatever
  *  the To field names (a pasted key, or lookups for its addresses). */
+/** Kaditham-hosted WKD publish (deliberately app-layer, not shared core:
+ *  the publish endpoint is a Kaditham service feature). Ownership proof is
+ *  a mail to the address itself; only domains Kaditham serves accept.
+ *  Browser builds hit CORS here — the shell's Rust-side http client is the
+ *  supported path, matching wkd.ts. */
+const KADITHAM_WKD_PUBLISH = 'https://mail.kaditham.ie/signup/api/wkd/publish';
+async function kadithamWkdPublish(address: string, publicKey: string): Promise<'sent' | 'unsupported' | 'unavailable'> {
+  try {
+    const init: RequestInit = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address, publicKey }),
+      signal: AbortSignal.timeout(15_000),
+    };
+    const r = '__TAURI_INTERNALS__' in window
+      ? await (await import('@tauri-apps/plugin-http')).fetch(KADITHAM_WKD_PUBLISH, init)
+      : await fetch(KADITHAM_WKD_PUBLISH, init);
+    if (r.ok) return 'sent';
+    if (r.status === 403) return 'unsupported';   // domain not served — not an error
+    return 'unavailable';
+  } catch {
+    return 'unavailable';
+  }
+}
+
 async function unsealCandidates(toRaw: string): Promise<string[]> {
   const cands: string[] = [];
   for (const email of ringAddresses()) {
