@@ -1,7 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.3.5 — 2026-08-28
 
+- **Sealing tells you it's working.** Sealing to an address kicks off key
+  discovery over the network (WKD, then keys.openpgp.org), and until now
+  the UI simply went quiet for the duration. The Seal button now reads
+  "Looking up keys…" and stays disabled until discovery answers, so a
+  second click can no longer race the first.
+- **Key discovery can no longer hang.** Every discovery request carries a
+  ten-second timeout; a recipient domain that accepts the connection and
+  then goes silent used to pin sealing on the platform's TCP timeout —
+  now it fails over to the next source within ten seconds, and the error
+  says which domain could not be reached.
+- **Stricter imports.** Importing a key that carries no user ID for the
+  address it is being imported under is refused — every discovery source
+  (WKD, keyserver, paste) now applies the same rule, so a key server or a
+  pasted blob can never bind someone else's key to an address.
 - **End-to-end tests for the UI** (`e2e/`, Playwright): the browser build is
   driven for real — generate and rotate keys, click-for-details, a full
   seal→unseal round-trip, wrong-passphrase rejection, Lock, the update
