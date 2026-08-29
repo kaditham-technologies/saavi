@@ -7,7 +7,8 @@ them from drifting.
 ## Shared core (Saavi is upstream)
 
 `src/pgp.ts` (keystore + every OpenPGP operation), `src/wkd.ts`
-(WKD lookup) and `src/pins.ts` (recipient key pinning) are owned HERE. The webmail vendors them via
+(WKD lookup) and `src/pins.ts` (recipient key pinning) are owned HERE.
+The webmail vendors them via
 `scripts/sync-saavi.sh` in its repo, which applies only declared,
 mechanical brandings (storage prefix, backup-file wording) and records
 the upstream commit in `.saavi-core-ref`. **Never edit those files in
