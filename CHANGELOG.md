@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.6 — 2026-08-29
 
 - **Saavi remembers whose key is whose.** Until now every seal asked WKD (or
   keys.openpgp.org) fresh and forgot the answer, so a rotated key and a
