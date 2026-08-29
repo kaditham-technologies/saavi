@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.2 — 2026-08-29
+
+- **The sealer shows you the result instead of hiding it.** Sealed and
+  unsealed text used to appear below the buttons in a narrow column, so on a
+  wide window half the screen sat empty and a letter you had just unsealed
+  landed under the fold — you had to scroll to read it. The sealer is now
+  two panes: what you are working on, and what came out. The result pane is
+  always there, so it reads as a destination rather than something that
+  materialises; the signature verdict and a Copy button sit at its head
+  rather than beneath a wall of armour; and Seal/Unseal are visibly one pair
+  with Sign/Verify another. On a narrow window the panes stack, the text box
+  shrinks, and a new result scrolls itself into view.
+- **Copy buttons where copying was the whole point.** A fingerprint exists
+  to be read down a phone and a public key to be pasted into a mail, and
+  both sat in a box you had to drag-select inside a webview. Every dialog
+  code box now carries Copy, and so does the fingerprint on "Your key is
+  ready". If the clipboard is refused, the text is selected instead.
+- **Publishing to Kaditham WKD no longer fails in silence.** Only success
+  printed anything: a rate limit, a key carrying no user ID for the address,
+  or the service being down all produced the success message minus one
+  paragraph, which nobody would notice. It now reports what the server said,
+  and that the keyserver upload is unaffected.
+- **Publish says the verification mail may land in spam**, because it does.
+- Fixed: a blank button sat beside Close on every notice dialog.
+
 ## 0.4.1 — 2026-08-29
 
 External audit; five findings, all actioned.
