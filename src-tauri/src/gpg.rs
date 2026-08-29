@@ -12,10 +12,11 @@
 //! and all key/message material travels over stdin, never argv.
 
 use serde::Serialize;
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 // ---------------------------------------------------------------- locating
 
@@ -926,11 +927,56 @@ pub async fn gpg_recv_key(app: tauri::AppHandle, fingerprint: String) -> Result<
 
 use tauri_plugin_dialog::DialogExt;
 
+/// Paths the SHELL itself watched the user drop on the window.
+///
+/// The webview is allowed to name an input file, because that is how a
+/// dropped file reaches gpg. But "the webview named it" and "the user chose
+/// it" are not the same claim: frontend code that has been tampered with
+/// could otherwise hand gpg any readable path on the disk and have it
+/// decrypted. Only paths recorded here came from a real drop; anything else
+/// has to be confirmed natively, naming the file, before gpg reads it.
+#[derive(Default)]
+pub struct DroppedPaths(Mutex<HashSet<PathBuf>>);
+
+impl DroppedPaths {
+    /// Called from the window's DragDrop handler — the one place the shell,
+    /// not the webview, learns what the user dropped.
+    pub fn remember(&self, paths: &[PathBuf]) {
+        if let Ok(mut set) = self.0.lock() {
+            // A drop is a small, deliberate act; the cap only stops an
+            // unbounded set if someone drags a very large tree repeatedly.
+            if set.len() > 512 {
+                set.clear();
+            }
+            set.extend(paths.iter().cloned());
+        }
+    }
+
+    fn saw(&self, path: &Path) -> bool {
+        self.0.lock().map(|set| set.contains(path)).unwrap_or(false)
+    }
+}
+
 fn pick_input(app: &tauri::AppHandle, given: Option<String>, title: &str) -> Result<Option<PathBuf>, String> {
     if let Some(p) = given.filter(|p| !p.is_empty()) {
         let pb = PathBuf::from(&p);
         if !pb.is_absolute() || !pb.is_file() {
             return Err("That file does not exist.".into());
+        }
+        // A path the shell saw dropped is the user's choice by definition.
+        // Any other path the webview names is not, so it gets the same
+        // native confirmation that guards the real keyring.
+        if !tauri::Manager::state::<DroppedPaths>(app).saw(&pb)
+            && !confirm_native(
+                app,
+                "Let Saavi open this file?",
+                &format!(
+                    "Saavi is about to read:\n\n{}\n\nYou did not drop this file on the window or pick it in a dialog.",
+                    pb.display()
+                ),
+            )
+        {
+            return Ok(None);
         }
         return Ok(Some(pb));
     }

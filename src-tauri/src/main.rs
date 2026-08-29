@@ -9,6 +9,14 @@ mod selfupdate;
 
 fn main() {
     tauri::Builder::default()
+        // The shell records what the user drops, so gpg.rs can tell a file
+        // the user chose from a path the webview merely named.
+        .manage(gpg::DroppedPaths::default())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                tauri::Manager::state::<gpg::DroppedPaths>(window).remember(paths);
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())

@@ -21,13 +21,23 @@ should get a CHANGELOG line.
       (own keys, To field, WKD/VKS, plus a by-key-id VKS lookup for an unknown
       signer) and the unseal shows the same verdicts as Verify. Trust badge is
       a fingerprint comparison, not a UID substring (audit M2).
-- [ ] **Pin GitHub Actions to commit SHAs** (`tauri-action@v0`,
-      `checkout@v4`, `setup-node@v4`, `rust-toolchain@stable`,
-      `audit-check@v2`). Dependabot now tracks them, so pins stay fresh.
-- [ ] **S2K choice.** OpenPGP.js locks stored keys with iterated+salted
-      SHA by default. Argon2 is stronger against offline guessing but
-      backups then need `gpg >= 2.4` to import. Decide, document in
-      SECURITY.md either way.
+- [x] **Pin GitHub Actions to commit SHAs.** All 22 `uses:` lines in
+      `ci.yml` and `release.yml` carry a SHA with the version as a trailing
+      comment; Dependabot's github-actions ecosystem keeps them fresh.
+- [ ] **The bundler still fetches an unpinned binary mid-build.**
+      `tauri-action` downloads `AppRun-x86_64` from the `apprun-old` tag of
+      tauri-apps/binary-releases with no checksum, inside the pinned action —
+      so SHA pinning does not cover it. It is both a supply-chain input we do
+      not verify and a build-time flake (a 504 there failed CI on a
+      docs-only commit, 2026-08-29). Vendor it, or check it against a known
+      hash before bundling.
+- [x] **S2K choice — decided: stay on iterated-and-salted SHA.** Argon2 is
+      the stronger KDF, but Argon2-locked keys need GnuPG 2.4+ to import and
+      the backup file is the user's only way back; an unimportable backup
+      loses the key outright. The defaults (six EFF words, ~77 bits; 12-char
+      floor) also sit outside the band where a KDF decides anything.
+      Reasoning and the revisit condition are in SECURITY.md → Crypto
+      inventory.
 - [ ] **Import: check the key carries the address** it is being filed
       under (`importKey` trusts the user-typed email). Warn, don't block.
       (A 12-character floor now applies when a cleartext key is locked on
@@ -47,12 +57,14 @@ should get a CHANGELOG line.
       GnuPG mode all take every pasted key and every typed address. Pinned
       by an e2e that mixes a pasted key with an address and expects the
       seal to refuse when that address cannot be resolved.
-- [ ] **Importing a secret-key blob still takes only the first key**
-      (`gpg --export-secret-keys` with several). Same shape as the To-field
-      bug, different path — `pgp.importKey` has not been given the same
-      treatment.
-- [ ] **Hidden-recipient messages** (wildcard key ID) never match in
-      `neededKeyFor`; they read as "no key fits" instead of prompting.
+- [x] **Importing a secret-key blob no longer takes only the first key.**
+      `pgp.importKey` counts the armored blocks and refuses a multi-key
+      paste by name ("this paste carries N private keys"), because a ring
+      holds one active key per address and there is no correct guess.
+- [x] **Hidden-recipient messages prompt for the active key.**
+      `decryptText` always knew to try a wildcard key ID; `neededKeyFor` and
+      `neededKeyForBytes` did not, so a message that would have opened was
+      reported as one that could not.
 
 - [ ] **System keyring, next slice:** smartcard status (`--card-status`),
       pick the git-signing key, revoke a whole key (import a revocation
@@ -152,3 +164,21 @@ Learn listing on kaditham.ie/saavi.
 - [ ] **A walkthrough recording of the change stop**, the way
       `walkthroughs.js` covers first-key and sealing. It is the most
       persuasive thing the app does and it is currently a still.
+
+## External audit, 2026-08-29 (post-0.4.0)
+
+Five findings; all actioned. Notes on the two that were not simply "fix it".
+
+- [x] **`pick_input()` accepted any absolute path from the webview.** The
+      real primitive: tampered frontend code could name any readable file
+      and have gpg decrypt it. The plaintext goes to a native save dialog,
+      so exfiltration needed the user to accept that dialog — but the
+      chosen path then enters the fs scope, and the http scope admits
+      `https://*/.well-known/openpgpkey/**` on ANY domain, so a channel
+      existed. The shell now records paths from `WindowEvent::DragDrop`
+      that it observed itself; a path it did not see dropped gets the same
+      native confirmation that guards the real keyring, naming the file.
+      A dropped file is still one gesture, so the KGpg feel survives.
+- [x] **Actions pinned to SHAs** — but see the `AppRun` item above: the
+      auditor's finding does not close the whole hole, and pinning alone
+      would have been a false sense of it.

@@ -124,6 +124,20 @@ front end to the installed `gpg` binary (`src-tauri/src/gpg.rs`):
 - System GnuPG mode: the user's installed GnuPG does everything; Saavi
   parses its output.
 - Randomness: the platform CSPRNG via WebCrypto (Saavi store).
+- Key-derivation for the keystore: **iterated-and-salted SHA (OpenPGP S2K
+  mode 3), deliberately, not Argon2.** OpenPGP.js can produce Argon2-locked
+  keys and Argon2 is the stronger KDF, but a key locked that way can only be
+  imported by GnuPG 2.4 or newer — and a Saavi backup file is the user's
+  only route back to their key. An unimportable backup on the machine where
+  it is finally needed loses the key outright, which is a worse outcome than
+  the attack Argon2 defends against. That attack also lands where Saavi is
+  strongest: the wizard fills in six EFF words (~77 bits) and refuses
+  anything under 12 characters, and no KDF is the deciding factor at that
+  entropy — Argon2's advantage is largest for weak passphrases, which is the
+  band these defaults are built to avoid. **Revisit when** GnuPG 2.4+ is
+  broadly deployed on the platforms users restore onto, or if the passphrase
+  floor is ever relaxed. Changing it is one `config.s2kType` line, so this
+  is a decision rather than a limitation.
 - Post-quantum: tracked in [docs/ROADMAP.md](docs/ROADMAP.md) — hybrid ML-KEM
   composites will be offered when OpenPGP.js ships the
   draft-ietf-openpgp-pqc algorithms, at which point key rotation inside

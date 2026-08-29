@@ -209,13 +209,20 @@ export async function generateKeys(
  * A previously active key is retired, not destroyed.
  */
 export async function importKey(email: string, armoredSource: string, passphrase: string): Promise<KeyRecord> {
-  const block = armoredSource.match(
-    /-----BEGIN PGP PRIVATE KEY BLOCK-----[\s\S]*?-----END PGP PRIVATE KEY BLOCK-----/
+  const blocks = armoredSource.match(
+    /-----BEGIN PGP PRIVATE KEY BLOCK-----[\s\S]*?-----END PGP PRIVATE KEY BLOCK-----/g
   );
-  if (!block) {
+  if (!blocks) {
     throw new Error('No PGP private key found. Paste an ASCII-armored export (gpg --export-secret-keys --armor) or a Saavi backup file.');
   }
-  const parsed = await openpgp.readPrivateKey({ armoredKey: block[0] });
+  // `gpg --export-secret-keys` with no fingerprint exports the whole secret
+  // keyring. Taking the first key silently would file somebody's oldest key
+  // under this address and drop the rest — and a ring holds ONE active key
+  // per address, so there is no correct guess to make. Say what was found.
+  if (blocks.length > 1) {
+    throw new Error(`This paste carries ${blocks.length} private keys, and a Saavi address holds one. Export just the key you want — gpg --export-secret-keys --armor <fingerprint> — and paste that.`);
+  }
+  const parsed = await openpgp.readPrivateKey({ armoredKey: blocks[0] });
   // A key that doesn't name this address in a user ID can be imported and
   // even published, but every UID-checking lookup (ours included) will then
   // silently refuse it — nobody could ever encrypt to this address. Refuse
@@ -457,6 +464,22 @@ export async function decryptText(armored: string, verifyWith?: string | string[
   return { text: String(data), signatures: verdicts, ...summarize(verdicts) };
 }
 
+/** A hidden-recipient message carries an all-zero key ID on purpose: it
+ *  names nobody, so no ID can ever match. `decryptText` already knows to
+ *  try anyway (see noSessionKeyFits); the unlock prompt has to agree, or a
+ *  message that WOULD open is reported as one that cannot. */
+const isWildcardKeyId = (id: string): boolean => /^0+$/.test(id);
+
+async function infoFor(ring: KeyRing, rec: KeyRecord): Promise<KeyInfo> {
+  const fpr = (await openpgp.readKey({ armoredKey: rec.publicKey })).getFingerprint();
+  return {
+    fingerprint: fmtFpr(fpr),
+    created: rec.created,
+    isActive: rec === ring.active,
+    unlocked: sessionKeys.has(fpr),
+  };
+}
+
 /**
  * Which stored key does this ciphertext want? Matches the message's
  * encryption key IDs against every key (and subkey) on the ring. Null when
@@ -472,6 +495,9 @@ export async function neededKeyFor(email: string, armored: string): Promise<KeyI
   } catch {
     return null;
   }
+  // Hidden recipients: offer the active key, because trying it is the only
+  // way to find out and "no key fits" would be a guess stated as a fact.
+  if (wanted.some(isWildcardKeyId)) return infoFor(ring, ring.active);
   const candidates = [ring.active, ...ring.retired];
   for (const rec of candidates) {
     const key = await openpgp.readKey({ armoredKey: rec.publicKey });
@@ -688,6 +714,7 @@ export async function neededKeyForBytes(email: string, data: Uint8Array): Promis
   } catch {
     return null;
   }
+  if (wanted.some(isWildcardKeyId)) return infoFor(ring, ring.active);
   for (const rec of [ring.active, ...ring.retired]) {
     const key = await openpgp.readKey({ armoredKey: rec.publicKey });
     const ids = key.getKeys().map((k) => k.getKeyID().toHex().toLowerCase());

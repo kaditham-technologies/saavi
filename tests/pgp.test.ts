@@ -384,3 +384,33 @@ describe('splitKeyArmor', () => {
     expect(rest).toBe('ada@example.org, grace@example.ie');
   });
 });
+
+describe('audit follow-ups', () => {
+  it('refuses a multi-key secret blob and says how many it found', async () => {
+    const a = await openpgp.generateKey({ userIDs: [{ name: 'A', email: ME }], passphrase: PASS, type: 'ecc', curve: 'curve25519Legacy', format: 'armored' });
+    const b = await openpgp.generateKey({ userIDs: [{ name: 'B', email: ME }], passphrase: PASS, type: 'ecc', curve: 'curve25519Legacy', format: 'armored' });
+    await expect(pgp.importKey(ME, `${a.privateKey}\n${b.privateKey}`, PASS)).rejects.toThrow(/2 private keys/);
+  });
+
+  it('still imports a single key', async () => {
+    const a = await openpgp.generateKey({ userIDs: [{ name: 'A', email: ME }], passphrase: PASS, type: 'ecc', curve: 'curve25519Legacy', format: 'armored' });
+    await expect(pgp.importKey(ME, a.privateKey, PASS)).resolves.toBeTruthy();
+  });
+
+  it('offers the active key for a hidden-recipient message instead of "no key fits"', async () => {
+    const mine = await pgp.generateKeys(ME, 'Me', PASS, 'curve25519');
+    const pub = await openpgp.readKey({ armoredKey: mine.publicKey });
+    // wildcardCKeyID: the recipient key ID is written as all zeros
+    const armored = await openpgp.encrypt({
+      message: await openpgp.createMessage({ text: 'hidden' }),
+      encryptionKeys: pub,
+      config: { allowInsecureDecryptionWithSigningKeys: false },
+      wildcard: true,
+    }) as string;
+    const ids = (await openpgp.readMessage({ armoredMessage: armored })).getEncryptionKeyIDs().map((i) => i.toHex());
+    expect(ids.some((i) => /^0+$/.test(i))).toBe(true);
+    const needed = await pgp.neededKeyFor(ME, armored);
+    expect(needed).not.toBeNull();
+    expect(needed!.isActive).toBe(true);
+  });
+});
