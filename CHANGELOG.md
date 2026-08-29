@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.7 — 2026-08-29
+
+- **Remembered keys are per account, not per machine.** Two people sharing a
+  machine no longer inherit each other's decisions about whose key is whose.
+  Saavi itself has one account — the device — so nothing changes here; the
+  scope exists because the shared core now backs Kaditham Mail's key
+  pinning too, and there a browser really can hold several accounts.
+- **A key that was taken away is not "no key found".** When an address whose
+  key you have sealed to before stops publishing one, Saavi says the key was
+  withdrawn and refuses to seal, rather than reporting a plain miss — the
+  one case where pasting a replacement or sending in clear is exactly wrong.
+
 ## 0.3.6 — 2026-08-29
 
 - **Saavi remembers whose key is whose.** Until now every seal asked WKD (or
