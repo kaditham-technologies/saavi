@@ -21,6 +21,7 @@ the webmail** — change them here, then re-sync.
 | Key table (−k): generate/import/backup/delete, rings per address | ✓ | ✓ | shared core |
 | Sealer (−d): encrypt/decrypt text | ✓ | ✓ | shared core |
 | WKD recipient lookup | ✓ | ✓ | webmail: directory first, WKD fallback |
+| Suggested passphrase (6 EFF words) + strength read | ✓ | ✓ | core (`passphrase.ts`, `wordlist.ts`); shown in clear, "Use my own" opts out |
 | Recipient key pinning (TOFU) | ✓ (device scope) | ✓ (per signed-in account) | core (`pins.ts`); policy shared, prompts are per-app |
 | Withdrawn recipient key holds the send | ✓ | ✓ | core (`pins.ts` `withdrawn`); never downgrades to plaintext |
 | Revoked/unusable recipient key refused | ✓ | needs sync | core (`pgp.ts` `keyState`), checked on every seal |
@@ -35,6 +36,11 @@ the webmail** — change them here, then re-sync.
 | System GnuPG keyring (`gpg.rs`/`gpg.ts`) | ✓ | n/a (browser) | Saavi-only; delegates to the user's gpg |
 
 ## Pinning notes for the webmail sync
+
+`passphrase.ts` and `wordlist.ts` are core too — they were NOT vendored
+until 2026-08-29, so the webmail could not offer a suggestion at all and had
+a hand-rolled strength read that had drifted permissive. Anything that
+answers "is this good enough?" belongs in the core, not in each app.
 
 `pins.ts` is core and must be vendored by `scripts/sync-saavi.sh` alongside
 `pgp.ts` and `wkd.ts`. Two things need declaring there:

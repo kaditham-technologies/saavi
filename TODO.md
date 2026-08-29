@@ -182,3 +182,11 @@ Five findings; all actioned. Notes on the two that were not simply "fix it".
 - [x] **Actions pinned to SHAs** — but see the `AppRun` item above: the
       auditor's finding does not close the whole hole, and pinning alone
       would have been a false sense of it.
+
+- [ ] **A generated passphrase survives the switch to Import.** In the key
+      dialog, picking six words and then switching the segment to Import
+      leaves them in the passphrase field — which for an import means "the
+      passphrase that unlocks the key you are pasting", so Continue fails
+      with "that passphrase does not unlock this key". Present in Saavi and,
+      by faithful parity, in Kaditham Mail's window. Clear the suggestion on
+      the switch, in both.
