@@ -22,9 +22,11 @@ no extension ecosystem.
 - Key substitution in transit — WKD lookups are HTTPS end to end
   (redirects to plain HTTP are refused), the returned key must carry a
   user ID for the exact address asked for, and your own keys' fingerprints
-  are shown for out-of-band verification. Recipients' fingerprints are not
-  yet displayed before sealing (see TODO.md): a domain's own WKD server is
-  trusted for its users, as in GnuPG.
+  are shown for out-of-band verification. Beyond the transport, the Saavi
+  store pins recipient keys on first use and stops the seal when one
+  changes; see "Recipient key pinning" below for what that does and does
+  not promise. A domain's own WKD server is still trusted for its users on
+  first contact, as in GnuPG.
 
 Generated keys do not expire; rotation in Saavi (generate a new key, the
 old one is retired but kept) is the intended lifecycle.
@@ -35,6 +37,50 @@ old one is retired but kept) is the intended lifecycle.
 - A weak passphrase on the keystore.
 - Loss: there is no escrow and no recovery. The backup file plus the
   passphrase are the only path back.
+
+## Recipient key pinning (Saavi store)
+
+WKD and keys.openpgp.org answer "what is the key for this address?" fresh
+on every seal and remember nothing, so on their own they cannot tell a key
+rotation from a substitution — and neither event is ever shown to the
+person sealing. `src/pins.ts` keeps that missing record. Policy lives
+there; prompts do not, so Saavi and Kaditham Mail's KGPG window apply the
+same rules through different UIs.
+
+- **First use writes a pin and shows its fingerprint**, once. Trust on
+  first use is only trustworthy if the first use is visible, and this is
+  the moment the fingerprint can still be confirmed out of band.
+- **A changed key stops the seal.** One question per seal, listing every
+  changed recipient with both fingerprints, both sources, and the date the
+  old key was first seen. Declining seals nothing to anyone — a partial
+  send that reaches some recipients and silently drops the rest is treated
+  as the worse outcome.
+- **A withdrawn key refuses** instead of falling back to the remembered
+  one: a key that was taken away is not a safe substitute. A revoked key
+  refuses and points at asking for the replacement. An unreachable domain
+  seals to the remembered key and says that is what it did.
+- **Your own addresses are never pinned** — your keyring is the answer for
+  those. A pasted key pins under its primary address only, so a key that
+  also claims a colleague's address cannot quietly become the remembered
+  key for that colleague.
+- **Verifying never pins.** A signature verdict reports a fingerprint; it
+  does not authorise sending anything to it. Verification uses pinned keys
+  as candidates but never writes a pin and never raises a key-change
+  question. Sealing is the only path that pins.
+- **Pins are scoped to an owner**, so two accounts on one machine do not
+  inherit each other's trust decisions. The desktop app passes one
+  device-wide scope; the webmail scopes per signed-in user.
+
+**What pinning is not.** Pins are public key material, not secrets — an
+unreadable pin record is dropped rather than quarantined, because it is
+always re-derivable from the network, and a full storage quota never
+breaks sealing. More importantly, a pin asserts only *the same key as last
+time*. It is not an identity check. The out-of-band fingerprint
+confirmation at first contact is the step that authenticates anybody, and
+Saavi can prompt for it but cannot perform it.
+
+System GnuPG mode does not pin: trust there is gpg's own web of trust, and
+an untrusted recipient key is refused until you say "this once".
 
 ## OS keychain (Saavi store, opt-in)
 

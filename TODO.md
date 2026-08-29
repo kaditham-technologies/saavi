@@ -36,8 +36,11 @@ should get a CHANGELOG line.
       unmaintained; `glib 0.18` unsound iterator). All via Tauri/gtk-rs;
       clears when Tauri bumps. Re-check on each Tauri upgrade.
 
-- [ ] **Show recipient fingerprints before sealing** (WKD or pasted), so
-      a substituted key at the recipient's domain is at least visible.
+- [x] **Show recipient fingerprints before sealing** (WKD or pasted).
+      Recipient pinning does this: first contact prints the fingerprint it
+      just remembered, and a later disagreement stops the seal with both
+      fingerprints side by side. See "Recipient key pinning" in
+      SECURITY.md.
 - [ ] **Multiple pasted keys / mixed To field.** Only the first pasted
       armored block is used and addresses beside a pasted key are ignored;
       `gpg --export-secret-keys` with several keys imports only the first.
@@ -116,14 +119,18 @@ Learn listing on kaditham.ie/saavi.
       (`apps/saavi/page.html`, `grid-3` → `grid-2` so four cards make a
       2×2 rather than stranding one).
 
-- [ ] **README says nothing about pinning.** Neither the trust boundary
-      (which claims to enumerate what travels and what is trusted) nor the
-      two-faces table mentions that recipient keys are pinned. The trust
-      boundary is the wrong place to be silent about it.
-- [ ] **SECURITY.md likewise.** Its only "pin" hits are pinentry and the
-      release key. Recipient pinning is a trust-model property and belongs
-      in the model, including what it does *not* claim (same key as last
-      time, not a verified identity).
+- [x] **README trust boundary** carries a pinning bullet.
+- [x] **SECURITY.md** gains a "Recipient key pinning" section, and its
+      key-substitution bullet no longer says recipients' fingerprints are
+      "not yet displayed before sealing" — they have been since 0.3.6.
+
+- [ ] **`/saavi/sealing/` overstates the copy-to-self.** It says Saavi
+      "always seals a copy to your own key, so your sent letters remain
+      readable to you". Sealing only adds the sender's key when a **Sign
+      as** identity is chosen (`main.ts`: `const self = signer ? … : null`),
+      so an unsigned seal leaves the sender unable to read their own
+      letter. Either fix the sentence or make the behaviour match it —
+      the second is probably what a reader expects.
 - [ ] **The gentle guide's "Next steps"** links first-key and sealing but
       not the new page.
 - [ ] **"Ten minutes, screenshots included"** on the Learn section now
