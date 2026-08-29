@@ -85,7 +85,7 @@ keys from the GnuPG keyring.
 | Mode | What it is |
 |---|---|
 | **−k Keys** | The keyring: a table of every key — address, key ID, created, status/trust, secret-key presence — with New / Import / Backup / Delete / Details on a toolbar. Details shows fingerprint, subkeys, user IDs, and (system keyring) lets you set expiry, change passphrase, add or revoke user IDs, set owner trust, certify keys, fetch from keys.openpgp.org. |
-| **−d Encrypt/Decrypt** | The sealer: paste or type text, name recipients (WKD / keys.openpgp.org lookup, or paste a key), choose whether to sign, then Seal, Unseal, Sign (clearsign) or Verify. Drop a file on the window to seal it; drop a `.gpg` to unseal. Signature verdicts are shown on every unseal and verify. |
+| **−d Encrypt/Decrypt** | The sealer: paste or type text, name recipients, choose whether to sign, then Seal, Unseal, Sign (clearsign) or Verify. Addresses (WKD / keys.openpgp.org lookup) and pasted keys mix freely in the To field — several of each if you like, and every one is a recipient. Every seal, signed or not, also goes to one of your own keys, so what you send stays readable to you. Drop a file on the window to seal it; drop a `.gpg` to unseal. Signature verdicts are shown on every unseal and verify. |
 
 Tired of typing it? Tick **remember in the OS keychain** when unlocking
 and Saavi opens the key through macOS Keychain / Windows Credential
