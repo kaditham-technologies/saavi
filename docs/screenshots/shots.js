@@ -14,6 +14,19 @@ async function demoRing() {
   return { active: { publicKey, privateKey, created: new Date().toISOString(), revocationCertificate }, retired: [] };
 }
 
+/** Two different keys claiming the SAME address — a rotation from Saavi's
+ *  side is indistinguishable from a substitution, which is the whole reason
+ *  pins exist. Pasted keys pin under their primary address, so this drives
+ *  the pinning screens without a network or a live WKD domain. */
+async function correspondentKeys() {
+  const openpgp = await import('/app/node_modules/openpgp/dist/node/openpgp.mjs');
+  const one = async () => (await openpgp.generateKey({
+    userIDs: [{ name: 'Dara', email: 'dara@example.ie' }],
+    passphrase: 'x', type: 'ecc', curve: 'curve25519Legacy', format: 'armored',
+  })).publicKey;
+  return { first: await one(), second: await one() };
+}
+
 (async () => {
   const ring = JSON.stringify(await demoRing());
   const browser = await chromium.launch();
@@ -63,6 +76,30 @@ async function demoRing() {
   await page.click('#seal-enc');
   await page.waitForTimeout(4000);
   await page.screenshot({ path: '/out/sealed.png' });
+
+  // 6. first contact: sealing to a new address remembers its key, and says so
+  const dara = await correspondentKeys();
+  await page.fill('#seal-to', dara.first);
+  await page.fill('#seal-in', 'Dara — the survey PDF is on its way separately.\n\n— A');
+  await page.click('#seal-enc');
+  await page.waitForSelector('#seal-out', { timeout: 30000 });
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: '/out/pin-first-contact.png' });
+
+  // 7. the pins themselves, listed under the keys you hold
+  await page.click('#tab-keys');
+  await page.click('#act-refresh');            // the list is drawn on refresh, not on tab switch
+  await page.waitForSelector('.pin-head', { timeout: 15000 });
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: '/out/pin-known-addresses.png' });
+
+  // 8. the same address, a different key: the seal stops and asks
+  await page.click('#tab-seal');
+  await page.fill('#seal-to', dara.second);
+  await page.click('#seal-enc');
+  await page.waitForSelector('.ask-veil', { timeout: 30000 });
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: '/out/pin-key-changed.png' });
 
   await browser.close();
   console.log('done');

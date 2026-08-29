@@ -93,3 +93,45 @@ should get a CHANGELOG line.
 - [ ] **First tagged release after this preflight** to exercise the new
       `SHA256SUMS` / `latest.json` steps end-to-end (they are untested
       until a tag runs).
+
+## Documenting pinning (2026-08-29)
+
+Recipient key pinning landed across 0.3.6–0.3.9 and was documented
+nowhere a user would look: the CHANGELOG describes it and `docs/PARITY.md`
+tracks the shared-core contract, but the site's tutorials and the README
+did not mention it at all. The chain below closes that, ending at the
+Learn listing on kaditham.ie/saavi.
+
+- [x] **Photograph the three pin surfaces.** `docs/screenshots/shots.js`
+      now drives them with two generated keys claiming the same address —
+      first contact (the fingerprint note), Known addresses, and the
+      key-changed dialog — so no network or live WKD domain is needed.
+- [x] **`/saavi/pinning/` — "Remembered keys".** The why (a fresh lookup
+      cannot tell a rotation from a substitution), the first-contact
+      moment, the Known addresses list and Forget, the change stop, and
+      the withdrawn / revoked / unreachable answers.
+- [x] **`/saavi/sealing/` points at it**, in the paragraph that used to
+      say only that Saavi "finds their public key automatically".
+- [x] **The Learn listing carries a fourth card**
+      (`apps/saavi/page.html`, `grid-3` → `grid-2` so four cards make a
+      2×2 rather than stranding one).
+
+- [ ] **README says nothing about pinning.** Neither the trust boundary
+      (which claims to enumerate what travels and what is trusted) nor the
+      two-faces table mentions that recipient keys are pinned. The trust
+      boundary is the wrong place to be silent about it.
+- [ ] **SECURITY.md likewise.** Its only "pin" hits are pinentry and the
+      release key. Recipient pinning is a trust-model property and belongs
+      in the model, including what it does *not* claim (same key as last
+      time, not a verified identity).
+- [ ] **The gentle guide's "Next steps"** links first-key and sealing but
+      not the new page.
+- [ ] **"Ten minutes, screenshots included"** on the Learn section now
+      covers four pages, not three. Re-time or re-word.
+- [ ] **`shots.js` cannot be run from inside the repo** — `package.json`
+      has `"type": "module"`, so `node docs/screenshots/shots.js` dies with
+      "require is not defined". It works only from a neutral working
+      directory. Rename to `.cjs`, or say so in the header.
+- [ ] **A walkthrough recording of the change stop**, the way
+      `walkthroughs.js` covers first-key and sealing. It is the most
+      persuasive thing the app does and it is currently a still.
