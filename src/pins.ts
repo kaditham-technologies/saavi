@@ -64,9 +64,19 @@ export interface Lookup {
 
 export type LookupFn = (address: string) => Promise<Lookup>;
 
+export interface ResolveOptions {
+  /**
+   * Write what was decided (default true). Pass false where resolving is not
+   * yet an act of trust — a mail composer re-resolves on every keystroke, and
+   * merely typing an address must not record that you trust its key. Such a
+   * caller commits with remember() once the user actually acts.
+   */
+  commit?: boolean;
+}
+
 export type Resolution =
   /** Seal to `key`. `firstContact` and `offline` are worth telling the user. */
-  | { state: 'ok'; address: string; key: string; pin: Pin | null; firstContact: boolean; offline: boolean }
+  | { state: 'ok'; address: string; key: string; fingerprint: string; pin: Pin | null; firstContact: boolean; offline: boolean }
   /** A DIFFERENT key than the pinned one. Nothing is written until accept(). */
   | { state: 'changed'; address: string; key: string; fingerprint: string; source: PinSource; pin: Pin }
   /** Known before, and the source now answers with NO key. Withdrawn or
@@ -153,7 +163,8 @@ function markRevoked(owner: string, pin: Pin): void {
  * Writes a pin for a first contact or a confirmed match; a disagreement is
  * reported, never written — the caller must ask a human and call accept().
  */
-export async function resolve(owner: string, address: string, lookup: LookupFn): Promise<Resolution> {
+export async function resolve(owner: string, address: string, lookup: LookupFn, opts: ResolveOptions = {}): Promise<Resolution> {
+  const commit = opts.commit !== false;
   const addr = normalize(address);
   const pin = pinFor(owner, addr);
   const got = await lookup(addr);
@@ -165,7 +176,7 @@ export async function resolve(owner: string, address: string, lookup: LookupFn):
     // A source that could not be reached at all is a network problem, and a
     // remembered key is exactly the right answer — when we hold one.
     if (pin?.publicKey && got.status === 'unreachable') {
-      return { state: 'ok', address: addr, key: pin.publicKey, pin, firstContact: false, offline: true };
+      return { state: 'ok', address: addr, key: pin.publicKey, fingerprint: pin.fingerprint, pin, firstContact: false, offline: true };
     }
     // A source that ANSWERED and now offers nothing has withdrawn the key.
     // Not a substitution case, and not a downgrade-to-plaintext case either.
@@ -177,14 +188,16 @@ export async function resolve(owner: string, address: string, lookup: LookupFn):
   // revoked key straight through. Check the key itself, every time.
   const st = await keyState(got.key);
   if (st.revoked) {
-    if (pin) markRevoked(owner, pin);
+    if (pin && commit) markRevoked(owner, pin);
     return { state: 'revoked', address: addr, fingerprint: st.fingerprint };
   }
   if (!st.usable) return { state: 'unusable', address: addr, fingerprint: st.fingerprint, reason: st.reason };
 
   if (!pin) {
-    const fresh = write(owner, { address: addr, fingerprint: st.fingerprint, publicKey: got.key, source: got.source, firstSeen: now, lastSeen: now });
-    return { state: 'ok', address: addr, key: got.key, pin: fresh, firstContact: true, offline: false };
+    const fresh = commit
+      ? write(owner, { address: addr, fingerprint: st.fingerprint, publicKey: got.key, source: got.source, firstSeen: now, lastSeen: now })
+      : null;
+    return { state: 'ok', address: addr, key: got.key, fingerprint: st.fingerprint, pin: fresh, firstContact: true, offline: false };
   }
 
   if (pin.fingerprint === st.fingerprint) {
@@ -196,8 +209,8 @@ export async function resolve(owner: string, address: string, lookup: LookupFn):
     // The primary fingerprint survives a rotated encryption subkey or an
     // extended expiry, so the stored armor is REPLACED, not just touched —
     // otherwise the offline path keeps serving a superseded subkey forever.
-    const upd = write(owner, { ...pin, publicKey: got.key, source: got.source, lastSeen: now });
-    return { state: 'ok', address: addr, key: got.key, pin: upd, firstContact: false, offline: false };
+    const upd = commit ? write(owner, { ...pin, publicKey: got.key, source: got.source, lastSeen: now }) : pin;
+    return { state: 'ok', address: addr, key: got.key, fingerprint: st.fingerprint, pin: upd, firstContact: false, offline: false };
   }
 
   return { state: 'changed', address: addr, key: got.key, fingerprint: st.fingerprint, source: got.source, pin };
@@ -217,6 +230,22 @@ export function seed(owner: string, address: string, fingerprint: string, source
   if (!/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(fpr)) return null;
   const now = new Date().toISOString();
   return write(owner, { address: addr, fingerprint: fpr, publicKey: '', source, firstSeen: firstSeen ?? now, lastSeen: now });
+}
+
+/**
+ * Make a resolution durable: the user has now ACTED on this key — sent the
+ * letter, read one that verified against it — which is the moment a
+ * non-committing resolve() was waiting for. Keeps the address's firstSeen.
+ */
+export function remember(owner: string, address: string, armoredPublicKey: string, fingerprint: string, source: PinSource): Pin {
+  const addr = normalize(address);
+  const prior = pinFor(owner, addr);
+  const now = new Date().toISOString();
+  return write(owner, {
+    address: addr, fingerprint: fingerprint.replace(/\s+/g, '').toLowerCase(),
+    publicKey: armoredPublicKey, source,
+    firstSeen: prior?.firstSeen ?? now, lastSeen: now,
+  });
 }
 
 /** Commit a key change a human has accepted. firstSeen stays: it is when the

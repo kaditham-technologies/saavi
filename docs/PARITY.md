@@ -41,6 +41,10 @@ the webmail** — change them here, then re-sync.
 
 - **Storage prefix.** `PIN_PREFIX = 'saavi-pin-'` is branded the same
   mechanical way as `pgp.ts`'s `STORE_PREFIX`.
+- **Committing.** `resolve()` takes `{ commit: false }` for callers that
+  re-resolve speculatively (the composer, on every keystroke). They call
+  `remember()` once the user acts — sends the letter, or reads one that
+  verified — so a typed-then-deleted address leaves no trust record.
 - **Seeding.** `seed()` records a fingerprint whose key is not in hand, so a
   store that kept fingerprints only can be carried over rather than dropped.
   Dropping such records would turn every existing correspondent back into a

@@ -248,3 +248,46 @@ describe('seeded (fingerprint-only) pins', () => {
     expect(pins.pinFor(OWNER, THEM)!.publicKey).toBe(k.pub);
   });
 });
+
+describe('resolving without committing', () => {
+  it('decides everything and writes nothing', async () => {
+    const k = await makeKey(THEM);
+    const r = await pins.resolve(OWNER, THEM, found(k.pub), { commit: false });
+    expect(r.state).toBe('ok');
+    if (r.state !== 'ok') return;
+    expect(r.firstContact).toBe(true);
+    expect(r.pin).toBeNull();
+    expect(r.fingerprint).toHaveLength(40);
+    expect(pins.pinFor(OWNER, THEM)).toBeNull();   // typing an address is not trust
+  });
+
+  it('still catches a change without recording anything new', async () => {
+    const a = await makeKey(THEM);
+    await pins.resolve(OWNER, THEM, found(a.pub));
+    const b = await makeKey(THEM);
+    const r = await pins.resolve(OWNER, THEM, found(b.pub), { commit: false });
+    expect(r.state).toBe('changed');
+    expect(pins.pinFor(OWNER, THEM)!.publicKey).toBe(a.pub);
+  });
+
+  it('does not mark a revoked key when it is only looking', async () => {
+    const k = await makeKey(THEM);
+    await pins.resolve(OWNER, THEM, found(k.pub));
+    const { publicKey: revoked } = await openpgp.revokeKey({ key: k.priv, format: 'armored' });
+    const r = await pins.resolve(OWNER, THEM, found(revoked), { commit: false });
+    expect(r.state).toBe('revoked');
+    expect(pins.pinFor(OWNER, THEM)!.revokedAt).toBeUndefined();
+  });
+
+  it('remember() commits it, keeping the address\'s first-seen date', async () => {
+    const k = await makeKey(THEM);
+    const r = await pins.resolve(OWNER, THEM, found(k.pub), { commit: false });
+    if (r.state !== 'ok') throw new Error('expected ok');
+    const first = pins.remember(OWNER, THEM, r.key, r.fingerprint, 'directory');
+    expect(pins.pinFor(OWNER, THEM)!.publicKey).toBe(k.pub);
+    expect(pins.pinFor(OWNER, THEM)!.source).toBe('directory');
+
+    const again = pins.remember(OWNER, THEM, r.key, r.fingerprint, 'directory');
+    expect(again.firstSeen).toBe(first.firstSeen);
+  });
+});

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.9 — 2026-08-29
+
+- **Looking up a key is no longer the same as trusting it.** Key resolution
+  can now decide everything — first contact, changed key, revoked, withdrawn
+  — without writing anything down, and the decision is made durable only once
+  you act on it. Saavi resolves at the moment you press Seal, so nothing
+  changes here; Kaditham Mail re-checks recipients as you type, where
+  recording trust for an address you merely typed and deleted would be wrong.
+
 ## 0.3.8 — 2026-08-29
 
 - **A fingerprint can be remembered before its key is.** Saavi can now record
