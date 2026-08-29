@@ -1096,6 +1096,10 @@ function sealShow(label: string, text: string, sigs?: gpg.SignatureInfo[] | null
   ($('seal-out') as HTMLTextAreaElement).value = text;
   $('seal-out-fld').hidden = false;
   $('seal-copy').hidden = false;
+  // On a wide window the result is already beside the input. On a narrow one
+  // the panes stack, and a letter you just unsealed would otherwise appear
+  // below the fold — the reader has to know it worked without hunting.
+  $('seal-out-label').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   const sig = $('seal-sig');
   sig.replaceChildren();
   if (sigs === undefined) { sig.hidden = true; return; }

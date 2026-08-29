@@ -71,27 +71,36 @@
     <!-- −d : the sealer -->
     <section id="view-seal" class="view" hidden>
       <div class="seal-grid">
-        <label class="fld"><span id="seal-to-label">To (addresses — keys found via WKD — or paste a public key)</span>
-          <input id="seal-to" type="text" placeholder="ada@example.org, grace@proton.me" />
-        </label>
-        <label class="fld" id="seal-sign-fld"><span>Sign as</span>
-          <select id="seal-sign"><option value="">Don't sign</option></select>
-        </label>
-        <label class="fld"><span>Text</span>
-          <textarea id="seal-in" rows="9" placeholder="Write or paste — plain text to seal, or an armored PGP message to unseal."></textarea>
-        </label>
-        <div class="seal-acts">
-          <button id="seal-enc" class="primary" title="⌘↵ / Ctrl+Enter">Seal</button>
-          <button id="seal-dec">Unseal</button>
-          <button id="seal-sign-btn" title="Clearsign: readable text with a signature">Sign</button>
-          <button id="seal-verify" title="Check a clearsigned message">Verify</button>
-          <button id="seal-copy" hidden>Copy result</button>
+        <div class="seal-pane">
+          <label class="fld"><span id="seal-to-label">To (addresses — keys found via WKD — or paste a public key)</span>
+            <input id="seal-to" type="text" placeholder="ada@example.org, grace@proton.me" />
+          </label>
+          <label class="fld" id="seal-sign-fld"><span>Sign as</span>
+            <select id="seal-sign"><option value="">Don't sign</option></select>
+          </label>
+          <label class="fld fld-grow"><span>Text</span>
+            <textarea id="seal-in" rows="9" placeholder="Write or paste — plain text to seal, or an armored PGP message to unseal."></textarea>
+          </label>
+          <div class="seal-acts">
+            <button id="seal-enc" class="primary" title="⌘↵ / Ctrl+Enter">Seal</button>
+            <button id="seal-dec">Unseal</button>
+            <span class="acts-gap" aria-hidden="true"></span>
+            <button id="seal-sign-btn" title="Clearsign: readable text with a signature">Sign</button>
+            <button id="seal-verify" title="Check a clearsigned message">Verify</button>
+          </div>
+          <p id="seal-err" class="error" role="alert" hidden></p>
         </div>
-        <p id="seal-err" class="error" role="alert" hidden></p>
-        <p id="seal-sig" class="sigs" role="status" hidden></p>
-        <label class="fld" id="seal-out-fld" hidden><span id="seal-out-label">Result</span>
-          <textarea id="seal-out" rows="9" readonly></textarea>
-        </label>
+        <div class="seal-pane seal-result">
+          <div class="result-head">
+            <span id="seal-out-label">Result</span>
+            <button id="seal-copy" class="mini" hidden>Copy</button>
+          </div>
+          <p id="seal-sig" class="sigs" role="status" hidden></p>
+          <label class="fld fld-grow" id="seal-out-fld" hidden>
+            <textarea id="seal-out" rows="9" readonly></textarea>
+          </label>
+          <p class="result-empty">Sealed text, unsealed text and signature verdicts appear here.</p>
+        </div>
         <div id="files" class="files" hidden>
           <div id="dropzone" class="dropzone">
             <span>Drop files anywhere to seal them (or unseal <code>.gpg</code> / <code>.pgp</code> / <code>.asc</code>)</span>
