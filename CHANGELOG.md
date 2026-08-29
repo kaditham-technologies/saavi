@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.8 — 2026-08-29
+
+- **A fingerprint can be remembered before its key is.** Saavi can now record
+  that an address's key has a particular fingerprint without holding the key
+  itself — what you have when someone reads their fingerprint to you over the
+  phone. The next lookup fills the key in; one that disagrees is reported as
+  a changed key, exactly as it would be for a key remembered in full. Added
+  for Kaditham Mail, whose own pinning kept fingerprints only and would
+  otherwise have had to forget every correspondent it knew.
+
 ## 0.3.7 — 2026-08-29
 
 - **Remembered keys are per account, not per machine.** Two people sharing a

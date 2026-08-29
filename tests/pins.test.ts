@@ -210,3 +210,41 @@ describe('keyState', () => {
     expect(dead.fingerprint).toBe(live.fingerprint); // the whole point
   });
 });
+
+describe('seeded (fingerprint-only) pins', () => {
+  it('accepts the matching key later, without calling it a first contact', async () => {
+    const k = await makeKey(THEM);
+    const fp = await (await import('../src/pgp')).rawFingerprintOf(k.pub);
+    expect(pins.seed(OWNER, THEM, fp, 'directory', '2026-01-02T00:00:00.000Z')).not.toBeNull();
+    expect(pins.pinFor(OWNER, THEM)!.publicKey).toBe('');
+
+    const r = await pins.resolve(OWNER, THEM, found(k.pub));
+    expect(r.state).toBe('ok');
+    if (r.state !== 'ok') return;
+    expect(r.firstContact).toBe(false);          // the fingerprint was already known
+    expect(pins.pinFor(OWNER, THEM)!.publicKey).toBe(k.pub);
+    expect(pins.pinFor(OWNER, THEM)!.firstSeen).toBe('2026-01-02T00:00:00.000Z');
+  });
+
+  it('still catches a key that disagrees with the seeded fingerprint', async () => {
+    const fp = await (await import('../src/pgp')).rawFingerprintOf((await makeKey(THEM)).pub);
+    pins.seed(OWNER, THEM, fp, 'directory');
+    const other = await makeKey(THEM);
+    const r = await pins.resolve(OWNER, THEM, found(other.pub));
+    expect(r.state).toBe('changed');
+  });
+
+  it('has no key to fall back on when the network is down', async () => {
+    pins.seed(OWNER, THEM, 'b'.repeat(40), 'directory');
+    const r = await pins.resolve(OWNER, THEM, unreachable);
+    expect(r.state).toBe('missing');            // never seals to an empty key
+  });
+
+  it('refuses nonsense and never overwrites a real pin', async () => {
+    expect(pins.seed(OWNER, THEM, 'not-a-fingerprint', 'directory')).toBeNull();
+    const k = await makeKey(THEM);
+    await pins.resolve(OWNER, THEM, found(k.pub));
+    expect(pins.seed(OWNER, THEM, 'c'.repeat(40), 'directory')).toBeNull();
+    expect(pins.pinFor(OWNER, THEM)!.publicKey).toBe(k.pub);
+  });
+});

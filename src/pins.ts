@@ -41,7 +41,9 @@ export interface Pin {
   address: string;
   /** Raw lowercase hex — the field every comparison is made on. */
   fingerprint: string;
-  /** Armored public key, refreshed whenever the fingerprint still matches. */
+  /** Armored public key, refreshed whenever the fingerprint still matches.
+   *  Empty when only the fingerprint is known (see seed) — the next
+   *  successful lookup fills it in. */
   publicKey: string;
   source: PinSource;
   firstSeen: string;
@@ -160,14 +162,14 @@ export async function resolve(owner: string, address: string, lookup: LookupFn):
   if (!got.key) {
     // A key already known to be revoked stays refused whatever the lookup does.
     if (pin?.revokedAt) return { state: 'revoked', address: addr, fingerprint: pin.fingerprint };
-    // A source that could not be reached at all is a network problem, and the
-    // remembered key is exactly the right answer.
-    if (pin && got.status === 'unreachable') {
+    // A source that could not be reached at all is a network problem, and a
+    // remembered key is exactly the right answer — when we hold one.
+    if (pin?.publicKey && got.status === 'unreachable') {
       return { state: 'ok', address: addr, key: pin.publicKey, pin, firstContact: false, offline: true };
     }
     // A source that ANSWERED and now offers nothing has withdrawn the key.
     // Not a substitution case, and not a downgrade-to-plaintext case either.
-    if (pin) return { state: 'withdrawn', address: addr, pin };
+    if (pin && got.status === 'none') return { state: 'withdrawn', address: addr, pin };
     return { state: 'missing', address: addr, status: got.status === 'found' ? 'none' : got.status, detail: got.detail };
   }
 
@@ -199,6 +201,22 @@ export async function resolve(owner: string, address: string, lookup: LookupFn):
   }
 
   return { state: 'changed', address: addr, key: got.key, fingerprint: st.fingerprint, source: got.source, pin };
+}
+
+/**
+ * Record a fingerprint whose key we do not hold: verified out of band, or
+ * carried over from a store that kept fingerprints only. The next successful
+ * lookup fills the key in — a match refreshes the armor, a disagreement is a
+ * change, exactly as for a pin that arrived complete. Never overwrites an
+ * existing pin, and reports nothing it could not store.
+ */
+export function seed(owner: string, address: string, fingerprint: string, source: PinSource, firstSeen?: string): Pin | null {
+  const addr = normalize(address);
+  if (pinFor(owner, addr)) return null;
+  const fpr = fingerprint.replace(/\s+/g, '').toLowerCase();
+  if (!/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(fpr)) return null;
+  const now = new Date().toISOString();
+  return write(owner, { address: addr, fingerprint: fpr, publicKey: '', source, firstSeen: firstSeen ?? now, lastSeen: now });
 }
 
 /** Commit a key change a human has accepted. firstSeen stays: it is when the

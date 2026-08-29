@@ -41,6 +41,10 @@ the webmail** — change them here, then re-sync.
 
 - **Storage prefix.** `PIN_PREFIX = 'saavi-pin-'` is branded the same
   mechanical way as `pgp.ts`'s `STORE_PREFIX`.
+- **Seeding.** `seed()` records a fingerprint whose key is not in hand, so a
+  store that kept fingerprints only can be carried over rather than dropped.
+  Dropping such records would turn every existing correspondent back into a
+  first contact, which is the exact moment a substituted key goes unnoticed.
 - **Owner scope.** Every entry point takes an owner as its first argument and
   keys records `<prefix><owner>|<address>`. The webmail passes the signed-in
   username, so two accounts on one browser never inherit each other's trust
