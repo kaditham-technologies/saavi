@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.1 — 2026-08-29
+
+External audit; five findings, all actioned.
+
+- **The webview can no longer name a file for gpg to open.** Saavi let the
+  frontend pass an absolute path straight to gpg, because that is how a
+  dropped file reaches it — but "the webview named it" and "you chose it"
+  are different claims, and frontend code that had been tampered with could
+  name any readable file and have it decrypted. The shell now records what
+  it watched you drop; a path it did not see gets a confirmation naming the
+  exact file before gpg reads it. Dropping a file is still one gesture.
+- **A paste holding several private keys is refused by name.** Importing
+  what `gpg --export-secret-keys` produces with no fingerprint took the
+  first key and dropped the rest without a word. An address holds one active
+  key, so there is no right guess to make; Saavi now says how many it found
+  and asks for the one you meant.
+- **A hidden-recipient message asks for your passphrase instead of claiming
+  no key fits.** Messages sent with the recipient hidden carry an all-zero
+  key ID on purpose, so nothing can match it by name. Unsealing already knew
+  to try anyway; the unlock prompt did not, and reported a message that
+  would have opened as one that could not.
+- **Every GitHub Action is pinned to a commit SHA.** Not a complete fix, and
+  TODO.md says why: the bundler still fetches an unpinned binary mid-build.
+- **The keystore stays on iterated-and-salted SHA, decided rather than
+  deferred.** Argon2 is the stronger key-derivation function, but keys
+  locked with it need GnuPG 2.4 or newer to import, and your backup file is
+  the only way back to your key — an unimportable backup loses it outright.
+  Six random words are ~77 bits, which is well past the point where the
+  derivation function is what an attacker struggles with. Reasoning and the
+  condition to revisit are in SECURITY.md.
+
 ## 0.4.0 — 2026-08-29
 
 - **Every seal is readable by you, not just the signed ones.** Saavi always
