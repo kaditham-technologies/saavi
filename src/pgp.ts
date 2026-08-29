@@ -328,6 +328,21 @@ export function normalizeKeyArmor(src: string): string {
   return `-----BEGIN PGP PUBLIC KEY BLOCK-----${body}-----END PGP PUBLIC KEY BLOCK-----`;
 }
 
+/**
+ * Every armored public key in a blob, each normalized, plus the text that
+ * surrounded them. A To field can carry several keys, or keys and addresses
+ * together, and taking only the first silently drops recipients — the sender
+ * believes three people can open the letter when one can.
+ */
+export function splitKeyArmor(src: string): { keys: string[]; rest: string } {
+  const keys: string[] = [];
+  const rest = src.replace(
+    /-----BEGIN PGP PUBLIC KEY BLOCK-----[\s\S]*?-----END PGP PUBLIC KEY BLOCK-----/g,
+    (block) => { keys.push(normalizeKeyArmor(block)); return ' '; },
+  );
+  return { keys, rest };
+}
+
 export type SigStatus = 'good' | 'bad' | 'expired' | 'revoked' | 'unknown-key' | 'unsigned';
 
 export interface SigVerdict {

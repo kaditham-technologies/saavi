@@ -1160,11 +1160,11 @@ async function verifyCandidates(toRaw: string): Promise<string[]> {
   }
   for (const p of pins.all(PIN_OWNER)) cands.push(p.publicKey);
   if (!toRaw) return cands;
-  if (toRaw.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
-    cands.push(pgp.normalizeKeyArmor(toRaw));
-    return cands;
-  }
-  for (const addr of splitAddresses(toRaw)) {
+  // Keys and addresses both count, and a pasted key no longer stops the rest
+  // of the field from being looked up.
+  const { keys: pasted, rest } = pgp.splitKeyArmor(toRaw);
+  cands.push(...pasted);
+  for (const addr of splitAddresses(rest)) {
     if (pins.pinFor(PIN_OWNER, addr)) continue;
     const got = await discover(addr);
     if (got.key) cands.push(got.key);
@@ -1257,26 +1257,52 @@ async function settle(rs: pins.Resolution[]): Promise<Recipients> {
 /** Saavi store: resolve the To field to armored public keys, applying the
  *  pinning policy in pins.ts to everything discovered over the network. */
 async function resolveSaaviRecipients(toRaw: string): Promise<Recipients> {
-  if (toRaw.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
-    const armored = pgp.normalizeKeyArmor(toRaw);
+  // Keys and addresses can share the field, and there can be several of
+  // each. Every one is resolved; none is quietly dropped.
+  const { keys: pasted, rest } = pgp.splitKeyArmor(toRaw);
+  const direct: string[] = [];   // used exactly as given, nothing to pin against
+  const looked: pins.Resolution[] = [];
+  let anonymous = 0;
+  for (const armored of pasted) {
     // A pasted key is pinned under its PRIMARY address only. Pinning every
     // address in its user IDs would let a key that also claims a colleague's
     // address quietly become the remembered key for that colleague.
     const addr = await pgp.primaryAddressOf(armored).catch(() => null);
-    if (!addr) return { keys: [armored], missing: [], why: [], notes: ['Sealed to a pasted key that names no address — nothing was remembered.'] };
-    return settle([await pins.resolve(PIN_OWNER, addr, async () => ({ key: armored, source: 'paste', status: 'found' }))]);
+    if (!addr) { direct.push(armored); anonymous++; continue; }
+    looked.push(await pins.resolve(PIN_OWNER, addr, async () => ({ key: armored, source: 'paste', status: 'found' })));
   }
-  const own: string[] = [];
-  const looked: pins.Resolution[] = [];
-  for (const addr of splitAddresses(toRaw)) {
+  for (const addr of splitAddresses(rest)) {
     // Your own ring IS the pin for your own addresses.
     const mine = pgp.keysFor(addr)?.publicKey;
-    if (mine) { own.push(mine); continue; }
+    if (mine) { direct.push(mine); continue; }
     looked.push(await pins.resolve(PIN_OWNER, addr, discover));
   }
   const out = await settle(looked);
-  out.keys.unshift(...own);
+  out.keys.unshift(...direct);
+  if (anonymous) {
+    out.notes.push(anonymous === 1
+      ? 'Sealed to a pasted key that names no address — nothing was remembered.'
+      : `Sealed to ${anonymous} pasted keys that name no address — nothing was remembered.`);
+  }
   return out;
+}
+
+/**
+ * Your own copy of what you send. Sealing only to the recipient leaves the
+ * sender holding ciphertext they cannot open, and for a copy-paste sealer
+ * that loss is permanent — there is no Sent folder to fall back on. So every
+ * seal also goes to one of your own keys.
+ *
+ * Which one: the signing identity when there is one, your only address when
+ * you hold one, and otherwise the first — never all of them. Sealing to
+ * every identity you own would tell the recipient, and anyone who sees the
+ * ciphertext, that those addresses belong to the same person.
+ */
+function selfCopy(signer: string | null): { key: string; email: string } | null {
+  const email = signer || ringAddresses()[0];
+  if (!email) return null;
+  const key = pgp.keysFor(email)?.publicKey;
+  return key ? { key, email } : null;
 }
 
 /** Make sure the Saavi signing key is unlocked; prompts if not. Resolves false if the user bails. */
@@ -1290,12 +1316,16 @@ async function ensureUnlocked(email: string): Promise<boolean> {
 
 /** System: resolve To (pasted key → import) to gpg recipients. */
 async function resolveSystemRecipients(toRaw: string): Promise<string[]> {
-  if (toRaw.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
-    const r = await gpg.importKey(pgp.normalizeKeyArmor(toRaw));
-    status(`Pasted key imported into GnuPG: ${r.fingerprints.map(gpg.fmtFpr).join(', ')}`);
-    return r.fingerprints;
+  const { keys: pasted, rest } = pgp.splitKeyArmor(toRaw);
+  const out = splitAddresses(rest);
+  if (pasted.length) {
+    // gpg imports a concatenated blob in one go, so several pasted keys cost
+    // one call — and addresses beside them are still recipients.
+    const r = await gpg.importKey(pasted.join('\n'));
+    status(`Pasted key${pasted.length === 1 ? '' : 's'} imported into GnuPG: ${r.fingerprints.map(gpg.fmtFpr).join(', ')}`);
+    out.push(...r.fingerprints);
   }
-  return splitAddresses(toRaw);
+  return out;
 }
 
 async function untrustedOk(untrusted: string[]): Promise<boolean> {
@@ -1342,11 +1372,15 @@ $('seal-enc').addEventListener('click', async () => {
     if (missing.length) return sealFail(`Not sealed. ${why.join('. ')}.`);
     const signer = signAs();
     if (signer && !await ensureUnlocked(signer)) return sealFail('Not sealed — the signing key stayed locked.');
-    // Also seal to the signing identity's own key, so the sender keeps a
-    // readable record of what they sent (copy-paste sealers lose it otherwise).
-    const self = signer ? pgp.keysFor(signer)?.publicKey : null;
-    if (self) keys.push(self);
-    sealShow(signer ? 'Sealed and signed message (also readable by you)' : 'Sealed message', await pgp.encryptText(text, keys, signer || undefined, { sign: !!signer }));
+    const self = selfCopy(signer);
+    // Already a recipient when you sealed to your own address; encrypting to
+    // the same key twice is visible in the packet and buys nothing.
+    if (self && !keys.includes(self.key)) keys.push(self.key);
+    // Which key took the copy is only obvious when there was no choice.
+    if (self && !signer && ringAddresses().length > 1) {
+      notes.push(`A copy was sealed to your ${self.email} key, so this stays readable to you.`);
+    }
+    sealShow(signer ? 'Sealed and signed message (also readable by you)' : 'Sealed message (also readable by you)', await pgp.encryptText(text, keys, signer || undefined, { sign: !!signer }));
     // sealShow hides the verdict strip when there are no signatures to
     // report; a first-contact fingerprint has to bring it back.
     if (notes.length) {
@@ -1501,6 +1535,10 @@ async function sealFile(input: string | null): Promise<void> {
   const { keys, missing, why } = await resolveSaaviRecipients(toRaw);
   if (missing.length) return fileStatus(`No key found. ${why.join('. ')}.`);
   if (signWith && !await ensureUnlocked(signWith)) return fileStatus('Not sealed — the signing key stayed locked.');
+  // A sealed file you cannot open is worse than a sealed message: the
+  // plaintext is usually deleted once the .gpg exists.
+  const self = selfCopy(signWith);
+  if (self && !keys.includes(self.key)) keys.push(self.key);
   const output = await pickSave(`${path}.gpg`);
   if (!output) return;
   const { readFile, writeFile } = await import('@tauri-apps/plugin-fs');

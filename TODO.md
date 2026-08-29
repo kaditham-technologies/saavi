@@ -41,10 +41,16 @@ should get a CHANGELOG line.
       just remembered, and a later disagreement stops the seal with both
       fingerprints side by side. See "Recipient key pinning" in
       SECURITY.md.
-- [ ] **Multiple pasted keys / mixed To field.** Only the first pasted
-      armored block is used and addresses beside a pasted key are ignored;
-      `gpg --export-secret-keys` with several keys imports only the first.
-      Say so, or handle all of them.
+- [x] **Multiple pasted keys / mixed To field.** Handled rather than
+      documented away, in 0.4.0: `pgp.splitKeyArmor` returns every armored
+      block plus the surrounding text, so sealing, verifying and System
+      GnuPG mode all take every pasted key and every typed address. Pinned
+      by an e2e that mixes a pasted key with an address and expects the
+      seal to refuse when that address cannot be resolved.
+- [ ] **Importing a secret-key blob still takes only the first key**
+      (`gpg --export-secret-keys` with several). Same shape as the To-field
+      bug, different path — `pgp.importKey` has not been given the same
+      treatment.
 - [ ] **Hidden-recipient messages** (wildcard key ID) never match in
       `neededKeyFor`; they read as "no key fits" instead of prompting.
 
@@ -124,21 +130,25 @@ Learn listing on kaditham.ie/saavi.
       key-substitution bullet no longer says recipients' fingerprints are
       "not yet displayed before sealing" — they have been since 0.3.6.
 
-- [ ] **`/saavi/sealing/` overstates the copy-to-self.** It says Saavi
-      "always seals a copy to your own key, so your sent letters remain
-      readable to you". Sealing only adds the sender's key when a **Sign
-      as** identity is chosen (`main.ts`: `const self = signer ? … : null`),
-      so an unsigned seal leaves the sender unable to read their own
-      letter. Either fix the sentence or make the behaviour match it —
-      the second is probably what a reader expects.
-- [ ] **The gentle guide's "Next steps"** links first-key and sealing but
-      not the new page.
-- [ ] **"Ten minutes, screenshots included"** on the Learn section now
-      covers four pages, not three. Re-time or re-word.
+- [x] **`/saavi/sealing/` overstated the copy-to-self** — it promised a
+      copy always came back to your own key, while an unsigned seal (and
+      every sealed file) kept none. Fixed in the app rather than the
+      sentence, in 0.4.0; pinned by an e2e spec that fails without it.
+- [x] **The gentle guide's "Next steps"** links the new page, and the
+      Saavi-store paragraph now points at it too.
+- [x] **The Learn section** says fifteen minutes, for four pages.
 - [ ] **`shots.js` cannot be run from inside the repo** — `package.json`
       has `"type": "module"`, so `node docs/screenshots/shots.js` dies with
       "require is not defined". It works only from a neutral working
       directory. Rename to `.cjs`, or say so in the header.
+- [x] **Docs-to-app parity sweep of the tutorials** (0.4.0). Five drifted
+      claims corrected on kaditham.ie: the window-hide lock is a five-minute
+      timer, GnuPG-keyring changes are confirmed in Saavi's own dialog and
+      not a native one, retired keys go only when deleted, System GnuPG
+      needs gpg installed, and the key dialog's button says Continue. Worth
+      repeating whenever the UI moves — every one of these was written true
+      and went stale.
+
 - [ ] **A walkthrough recording of the change stop**, the way
       `walkthroughs.js` covers first-key and sealing. It is the most
       persuasive thing the app does and it is currently a still.

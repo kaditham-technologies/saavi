@@ -352,3 +352,35 @@ describe('explicit signing', () => {
     expect(db.signatures.length).toBe(1);
   });
 });
+
+describe('splitKeyArmor', () => {
+  const block = (body: string) =>
+    `-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n${body}\n-----END PGP PUBLIC KEY BLOCK-----`;
+
+  it('returns every pasted key, not just the first', () => {
+    const { keys, rest } = pgp.splitKeyArmor(`${block('aaaa')}\n${block('bbbb')}`);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toContain('aaaa');
+    expect(keys[1]).toContain('bbbb');
+    expect(rest.trim()).toBe('');
+  });
+
+  it('keeps addresses that sit beside a pasted key', () => {
+    const { keys, rest } = pgp.splitKeyArmor(`ada@example.org, ${block('aaaa')} grace@example.ie`);
+    expect(keys).toHaveLength(1);
+    expect(rest).toContain('ada@example.org');
+    expect(rest).toContain('grace@example.ie');
+  });
+
+  it('normalizes a key pasted as a single line', () => {
+    const oneLine = '-----BEGIN PGP PUBLIC KEY BLOCK----- aaaa bbbb -----END PGP PUBLIC KEY BLOCK-----';
+    const { keys } = pgp.splitKeyArmor(oneLine);
+    expect(keys[0]).toContain('\naaaa\nbbbb\n');
+  });
+
+  it('finds nothing in a plain address list', () => {
+    const { keys, rest } = pgp.splitKeyArmor('ada@example.org, grace@example.ie');
+    expect(keys).toHaveLength(0);
+    expect(rest).toBe('ada@example.org, grace@example.ie');
+  });
+});

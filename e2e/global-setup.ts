@@ -2,7 +2,7 @@
 // a second; per-test generation would dominate the suite) and park it where
 // the fixtures can seed it into localStorage.
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { EMAIL, PASS, RING_FILE } from './fixtures';
+import { EMAIL, OTHER_EMAIL, OTHER_KEY_FILE, PASS, RING_FILE } from './fixtures';
 
 export default async function globalSetup(): Promise<void> {
   const openpgp = await import('openpgp');
@@ -18,4 +18,13 @@ export default async function globalSetup(): Promise<void> {
     active: { publicKey, privateKey, created: new Date().toISOString(), revocationCertificate },
     retired: [],
   }));
+  // A correspondent's public key, for sealing to somebody who is not us.
+  const other = await openpgp.generateKey({
+    userIDs: [{ name: 'Dara', email: OTHER_EMAIL }],
+    passphrase: PASS,
+    type: 'ecc',
+    curve: 'curve25519Legacy',
+    format: 'armored',
+  });
+  writeFileSync(OTHER_KEY_FILE, other.publicKey);
 }

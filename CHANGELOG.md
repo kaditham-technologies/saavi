@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.4.0 — 2026-08-29
+
+- **Every seal is readable by you, not just the signed ones.** Saavi always
+  sealed a copy back to your own key — but only when you had chosen a "Sign
+  as" identity. Seal without signing and the ciphertext was one you could
+  never open again, which for a copy-paste sealer is permanent: there is no
+  Sent folder to fall back on. Sealed files were worse and lost the copy
+  even when signed, and the plaintext is usually deleted once the `.gpg`
+  exists. Both now keep your copy, and the result says "also readable by
+  you" whether or not you signed.
+
+  Which of your keys takes the copy: the identity you are signing as, or
+  your only address, or — if you hold several and are not signing — the
+  first, named in the result so the choice is never silent. Never all of
+  them: sealing to every identity you own would tell the recipient, and
+  anyone who sees the ciphertext, that those addresses are the same person.
+  System GnuPG mode is untouched; `encrypt-to` in your `gpg.conf` owns this
+  there.
+
+- **The tutorials now describe the app that exists.** Reading every claim on
+  kaditham.ie/saavi back against the code turned up five more places where
+  the pages had drifted: unlocked keys are dropped five minutes after the
+  window hides, not the moment it does; changes to the GnuPG keyring are
+  confirmed in one of Saavi's own dialogs, not a native one (`window.confirm`
+  is unreliable in a webview, which is why the app draws its own); retired
+  keys go when you delete them rather than never; System GnuPG needs GnuPG
+  installed and stays greyed out until Saavi finds it; and the key dialog's
+  button says Continue, not Generate.
+
+- **A pasted key no longer swallows the rest of the To field.** Any pasted
+  public key used to short-circuit recipient resolution: a second pasted key
+  and every address typed beside one were dropped without a word, so the
+  sender believed everyone listed could open the letter when only the first
+  could. Keys and addresses now mix freely — paste several, type several, or
+  both — and each is resolved on its own terms, pasted keys pinned under
+  their primary address and typed addresses looked up as usual. The same
+  applies to verifying a signature, and to System GnuPG mode, where several
+  pasted keys import in one go and addresses beside them stay recipients.
+
 ## 0.3.9 — 2026-08-29
 
 - **Looking up a key is no longer the same as trusting it.** Key resolution

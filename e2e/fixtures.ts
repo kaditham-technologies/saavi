@@ -4,6 +4,11 @@ import type { BrowserContext } from '@playwright/test';
 export const EMAIL = 'anjali@example.ie';
 export const PASS = 'lantern-orbit-velvet-canyon-ember-tide';
 export const RING_FILE = 'e2e/.artifacts/ring.json';
+/** A correspondent who is NOT us: an armored public key, for the paths that
+ *  must behave differently when the recipient is somebody else. */
+export const OTHER_EMAIL = 'dara@example.ie';
+export const OTHER_KEY_FILE = 'e2e/.artifacts/other-key.asc';
+export const otherKey = (): string => readFileSync(OTHER_KEY_FILE, 'utf8');
 
 /** Seed the app's localStorage before first load: the demo ring (unless
  *  ring:false for empty-state tests) and the update check off (unless
