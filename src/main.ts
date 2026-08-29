@@ -9,6 +9,11 @@ import * as gpg from './gpg';
 import * as keychain from './keychain';
 import { wkdProbe } from './wkd';
 import * as pins from './pins';
+
+// Pins are scoped to an owner so two accounts on one machine cannot inherit
+// each other's trust decisions. The desktop app has no signed-in account —
+// its keyring IS the device — so everything here shares one empty scope.
+const PIN_OWNER = '';
 import { vksLookup, vksLookupKeyId, vksUpload, vksRequestVerify } from './vks';
 import { ask, confirmBox, notice } from './ui';
 import { generatePassphrase, passphraseBits, describeStrength } from './passphrase';
@@ -408,7 +413,7 @@ function pinRow(p: pins.Pin): HTMLElement {
   end.append(el('span', 'chip', p.revokedAt ? 'revoked' : p.source));
   const forget = el('button', 'ghost pin-forget', 'Forget');
   forget.title = `Forget the key remembered for ${p.address}. The next seal to that address is treated as a first contact again.`;
-  forget.addEventListener('click', () => { pins.forget(p.address); void refreshKeys(); });
+  forget.addEventListener('click', () => { pins.forget(PIN_OWNER, p.address); void refreshKeys(); });
   end.append(forget);
   row.append(dot, el('span', 'c-addr', p.address), el('span', 'c-id', '…' + p.fingerprint.slice(-8).toUpperCase()),
     el('span', 'c-date', fmtDate(p.firstSeen)), end);
@@ -488,7 +493,7 @@ async function refreshKeys(): Promise<void> {
   }
   // Keys REMEMBERED for other people — the record that makes a changed key
   // detectable. Not keys you hold, so they sit below your own.
-  const pinned = pins.all();
+  const pinned = pins.all(PIN_OWNER);
   if (pinned.length) {
     const head = el('div', 'pin-head');
     head.append(el('span', 'pin-head-t', `Known addresses · ${pinned.length}`));
@@ -1153,14 +1158,14 @@ async function verifyCandidates(toRaw: string): Promise<string[]> {
     const k = pgp.keysFor(email);
     if (k) cands.push(k.publicKey);
   }
-  for (const p of pins.all()) cands.push(p.publicKey);
+  for (const p of pins.all(PIN_OWNER)) cands.push(p.publicKey);
   if (!toRaw) return cands;
   if (toRaw.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
     cands.push(pgp.normalizeKeyArmor(toRaw));
     return cands;
   }
   for (const addr of splitAddresses(toRaw)) {
-    if (pins.pinFor(addr)) continue;
+    if (pins.pinFor(PIN_OWNER, addr)) continue;
     const got = await discover(addr);
     if (got.key) cands.push(got.key);
   }
@@ -1184,14 +1189,9 @@ async function discover(address: string): Promise<pins.Lookup> {
 
 function missingWhy(r: Extract<pins.Resolution, { state: 'missing' }>): string {
   const domain = r.address.split('@')[1] ?? '';
-  const base = r.status === 'unreachable'
+  return r.status === 'unreachable'
     ? `${r.address}: ${domain} could not be reached for WKD${r.detail ? ` (${r.detail})` : ''} — check the connection`
     : `${r.address}: ${domain} publishes no key for this address (WKD), and none is on keys.openpgp.org`;
-  // A withdrawn key is not the same as a network failure: the remembered one
-  // is deliberately NOT substituted, and the user should know it exists.
-  return r.hadPin && r.status === 'none'
-    ? `${base} — a key remembered for this address is still under Keys, but the address no longer publishes it`
-    : base;
 }
 
 /** One question for every recipient whose key changed, not one each. */
@@ -1228,8 +1228,14 @@ async function settle(rs: pins.Resolution[]): Promise<Recipients> {
         }
         break;
       case 'changed':
-        if (accepted) { pins.accept(r); out.keys.push(r.key); }
+        if (accepted) { pins.accept(PIN_OWNER, r); out.keys.push(r.key); }
         else { out.missing.push(r.address); out.why.push(`${r.address}: the published key changed and was not accepted`); }
+        break;
+      case 'withdrawn':
+        // Known before, offered by nobody now. Saying "no key found" would
+        // invite pasting one; the point is that a key was taken away.
+        out.missing.push(r.address);
+        out.why.push(`${r.address}: the key remembered since ${fmtDate(r.pin.firstSeen)} is no longer published anywhere, and a remembered key is not a safe substitute for one that was withdrawn — ask them directly`);
         break;
       case 'revoked':
         out.missing.push(r.address);
@@ -1258,7 +1264,7 @@ async function resolveSaaviRecipients(toRaw: string): Promise<Recipients> {
     // address quietly become the remembered key for that colleague.
     const addr = await pgp.primaryAddressOf(armored).catch(() => null);
     if (!addr) return { keys: [armored], missing: [], why: [], notes: ['Sealed to a pasted key that names no address — nothing was remembered.'] };
-    return settle([await pins.resolve(addr, async () => ({ key: armored, source: 'paste', status: 'found' }))]);
+    return settle([await pins.resolve(PIN_OWNER, addr, async () => ({ key: armored, source: 'paste', status: 'found' }))]);
   }
   const own: string[] = [];
   const looked: pins.Resolution[] = [];
@@ -1266,7 +1272,7 @@ async function resolveSaaviRecipients(toRaw: string): Promise<Recipients> {
     // Your own ring IS the pin for your own addresses.
     const mine = pgp.keysFor(addr)?.publicKey;
     if (mine) { own.push(mine); continue; }
-    looked.push(await pins.resolve(addr, discover));
+    looked.push(await pins.resolve(PIN_OWNER, addr, discover));
   }
   const out = await settle(looked);
   out.keys.unshift(...own);

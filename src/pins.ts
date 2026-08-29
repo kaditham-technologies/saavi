@@ -16,9 +16,23 @@
 // A pin is PUBLIC key material and always re-derivable from the network, so
 // unlike the private ring in pgp.ts an unreadable record is simply dropped
 // rather than quarantined.
+//
+// Pins are scoped to an OWNER. On a shared machine two accounts must not
+// inherit each other's trust decisions, and in the webmail the owner is the
+// signed-in user; a desktop keyring with no account passes '' and gets one
+// device-wide scope.
 import { keyState } from './pgp';
 
 const PIN_PREFIX = 'saavi-pin-';
+
+/** `<prefix><owner>|<address>`. Neither half can contain a pipe, so the two
+ *  never run together — and the address is stored in the record anyway. */
+const keyOf = (owner: string, address: string): string =>
+  `${PIN_PREFIX}${owner.trim().toLowerCase()}|${normalize(address)}`;
+
+/** A record written before scoping existed: no owner segment in the key. */
+const isLegacyKey = (k: string): boolean =>
+  k.startsWith(PIN_PREFIX) && !k.slice(PIN_PREFIX.length).includes('|');
 
 /** Where a key came from. 'directory' is the webmail's own address book. */
 export type PinSource = 'wkd' | 'vks' | 'directory' | 'paste';
@@ -53,14 +67,18 @@ export type Resolution =
   | { state: 'ok'; address: string; key: string; pin: Pin | null; firstContact: boolean; offline: boolean }
   /** A DIFFERENT key than the pinned one. Nothing is written until accept(). */
   | { state: 'changed'; address: string; key: string; fingerprint: string; source: PinSource; pin: Pin }
+  /** Known before, and the source now answers with NO key. Withdrawn or
+   *  withheld — never the same thing as "has no key yet", and never a reason
+   *  to fall back to sending in the clear. */
+  | { state: 'withdrawn'; address: string; pin: Pin }
   | { state: 'revoked'; address: string; fingerprint: string }
   | { state: 'unusable'; address: string; fingerprint: string; reason: string }
-  | { state: 'missing'; address: string; status: 'none' | 'unreachable'; detail?: string; hadPin: boolean };
+  | { state: 'missing'; address: string; status: 'none' | 'unreachable'; detail?: string };
 
 export const normalize = (address: string): string => address.trim().toLowerCase();
 
-export function pinFor(address: string): Pin | null {
-  const raw = localStorage.getItem(PIN_PREFIX + normalize(address));
+function readAt(key: string): Pin | null {
+  const raw = localStorage.getItem(key);
   if (!raw) return null;
   try {
     const p = JSON.parse(raw);
@@ -70,19 +88,46 @@ export function pinFor(address: string): Pin | null {
   }
 }
 
-export function all(): Pin[] {
-  const out: Pin[] = [];
+export function pinFor(owner: string, address: string): Pin | null {
+  const addr = normalize(address);
+  const here = readAt(keyOf(owner, addr));
+  if (here) return here;
+  // Pins predate scoping. The device scope inherits them one record at a
+  // time, as each is looked up — no startup sweep, and nothing to re-run.
+  if (owner.trim() === '') {
+    const legacyKey = PIN_PREFIX + addr;
+    const legacy = readAt(legacyKey);
+    if (legacy) {
+      write('', legacy);
+      try { localStorage.removeItem(legacyKey); } catch { /* left in place; harmless */ }
+      return legacy;
+    }
+  }
+  return null;
+}
+
+export function all(owner: string): Pin[] {
+  const scope = `${PIN_PREFIX}${owner.trim().toLowerCase()}|`;
+  const wantsLegacy = owner.trim() === '';
+  // Addresses first: pinFor may rewrite the store as it adopts a legacy
+  // record, and localStorage must not be mutated mid-scan.
+  const addrs = new Set<string>();
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i)!;
-    if (!k.startsWith(PIN_PREFIX)) continue;
-    const p = pinFor(k.slice(PIN_PREFIX.length));
+    if (k.startsWith(scope)) addrs.add(k.slice(scope.length));
+    else if (wantsLegacy && isLegacyKey(k)) addrs.add(k.slice(PIN_PREFIX.length));
+  }
+  const out: Pin[] = [];
+  for (const a of addrs) {
+    const p = pinFor(owner, a);
     if (p) out.push(p);
   }
   return out.sort((a, b) => a.address.localeCompare(b.address));
 }
 
-export function forget(address: string): void {
-  localStorage.removeItem(PIN_PREFIX + normalize(address));
+export function forget(owner: string, address: string): void {
+  localStorage.removeItem(keyOf(owner, address));
+  if (owner.trim() === '') localStorage.removeItem(PIN_PREFIX + normalize(address));
 }
 
 /**
@@ -90,15 +135,15 @@ export function forget(address: string): void {
  * already in hand and the seal is valid without a record of it — so a failed
  * write is swallowed and the in-memory Pin returned regardless.
  */
-function write(p: Pin): Pin {
+function write(owner: string, p: Pin): Pin {
   try {
-    localStorage.setItem(PIN_PREFIX + p.address, JSON.stringify(p));
+    localStorage.setItem(keyOf(owner, p.address), JSON.stringify(p));
   } catch { /* quota or storage disabled — seal unpinned rather than fail */ }
   return p;
 }
 
-function markRevoked(pin: Pin): void {
-  write({ ...pin, revokedAt: new Date().toISOString() });
+function markRevoked(owner: string, pin: Pin): void {
+  write(owner, { ...pin, revokedAt: new Date().toISOString() });
 }
 
 /**
@@ -106,34 +151,37 @@ function markRevoked(pin: Pin): void {
  * Writes a pin for a first contact or a confirmed match; a disagreement is
  * reported, never written — the caller must ask a human and call accept().
  */
-export async function resolve(address: string, lookup: LookupFn): Promise<Resolution> {
+export async function resolve(owner: string, address: string, lookup: LookupFn): Promise<Resolution> {
   const addr = normalize(address);
-  const pin = pinFor(addr);
+  const pin = pinFor(owner, addr);
   const got = await lookup(addr);
   const now = new Date().toISOString();
 
   if (!got.key) {
-    // A domain that could not be reached at all is a network problem, and a
-    // remembered key is exactly the right answer. A domain that ANSWERED and
-    // now publishes nothing has withdrawn the key — possibly because it was
-    // compromised — so the pin is not a safe substitute.
-    if (pin && !pin.revokedAt && got.status === 'unreachable') {
+    // A key already known to be revoked stays refused whatever the lookup does.
+    if (pin?.revokedAt) return { state: 'revoked', address: addr, fingerprint: pin.fingerprint };
+    // A source that could not be reached at all is a network problem, and the
+    // remembered key is exactly the right answer.
+    if (pin && got.status === 'unreachable') {
       return { state: 'ok', address: addr, key: pin.publicKey, pin, firstContact: false, offline: true };
     }
-    return { state: 'missing', address: addr, status: got.status === 'found' ? 'none' : got.status, detail: got.detail, hadPin: !!pin };
+    // A source that ANSWERED and now offers nothing has withdrawn the key.
+    // Not a substitution case, and not a downgrade-to-plaintext case either.
+    if (pin) return { state: 'withdrawn', address: addr, pin };
+    return { state: 'missing', address: addr, status: got.status === 'found' ? 'none' : got.status, detail: got.detail };
   }
 
   // Revocation does NOT change a fingerprint, so a pin match would wave a
   // revoked key straight through. Check the key itself, every time.
   const st = await keyState(got.key);
   if (st.revoked) {
-    if (pin) markRevoked(pin);
+    if (pin) markRevoked(owner, pin);
     return { state: 'revoked', address: addr, fingerprint: st.fingerprint };
   }
   if (!st.usable) return { state: 'unusable', address: addr, fingerprint: st.fingerprint, reason: st.reason };
 
   if (!pin) {
-    const fresh = write({ address: addr, fingerprint: st.fingerprint, publicKey: got.key, source: got.source, firstSeen: now, lastSeen: now });
+    const fresh = write(owner, { address: addr, fingerprint: st.fingerprint, publicKey: got.key, source: got.source, firstSeen: now, lastSeen: now });
     return { state: 'ok', address: addr, key: got.key, pin: fresh, firstContact: true, offline: false };
   }
 
@@ -146,7 +194,7 @@ export async function resolve(address: string, lookup: LookupFn): Promise<Resolu
     // The primary fingerprint survives a rotated encryption subkey or an
     // extended expiry, so the stored armor is REPLACED, not just touched —
     // otherwise the offline path keeps serving a superseded subkey forever.
-    const upd = write({ ...pin, publicKey: got.key, source: got.source, lastSeen: now });
+    const upd = write(owner, { ...pin, publicKey: got.key, source: got.source, lastSeen: now });
     return { state: 'ok', address: addr, key: got.key, pin: upd, firstContact: false, offline: false };
   }
 
@@ -155,9 +203,9 @@ export async function resolve(address: string, lookup: LookupFn): Promise<Resolu
 
 /** Commit a key change a human has accepted. firstSeen stays: it is when the
  *  address was first known, not when this key was. */
-export function accept(c: Extract<Resolution, { state: 'changed' }>): Pin {
+export function accept(owner: string, c: Extract<Resolution, { state: 'changed' }>): Pin {
   const now = new Date().toISOString();
-  return write({
+  return write(owner, {
     address: c.address, fingerprint: c.fingerprint, publicKey: c.key, source: c.source,
     firstSeen: c.pin.firstSeen, lastSeen: now,
   });

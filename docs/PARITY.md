@@ -21,7 +21,8 @@ the webmail** — change them here, then re-sync.
 | Key table (−k): generate/import/backup/delete, rings per address | ✓ | ✓ | shared core |
 | Sealer (−d): encrypt/decrypt text | ✓ | ✓ | shared core |
 | WKD recipient lookup | ✓ | ✓ | webmail: directory first, WKD fallback |
-| Recipient key pinning (TOFU) | ✓ | needs sync | core (`pins.ts`); policy shared, prompts are per-app |
+| Recipient key pinning (TOFU) | ✓ (device scope) | ✓ (per signed-in account) | core (`pins.ts`); policy shared, prompts are per-app |
+| Withdrawn recipient key holds the send | ✓ | ✓ | core (`pins.ts` `withdrawn`); never downgrades to plaintext |
 | Revoked/unusable recipient key refused | ✓ | needs sync | core (`pgp.ts` `keyState`), checked on every seal |
 | Named themes (Paper…Phosphor) | ✓ | ✓ | shared palette family, not shared code |
 | Paste-a-public-key recipient | ✓ | ✓ | armor normalized in core (single-line paste); pinned under its PRIMARY address only |
@@ -40,6 +41,10 @@ the webmail** — change them here, then re-sync.
 
 - **Storage prefix.** `PIN_PREFIX = 'saavi-pin-'` is branded the same
   mechanical way as `pgp.ts`'s `STORE_PREFIX`.
+- **Owner scope.** Every entry point takes an owner as its first argument and
+  keys records `<prefix><owner>|<address>`. The webmail passes the signed-in
+  username, so two accounts on one browser never inherit each other's trust
+  decisions; Saavi passes `''` — its keyring is the device.
 - **Lookup order.** `pins.resolve()` takes the lookup chain as an argument
   precisely so the webmail can ask its directory first and fall back to WKD,
   and record which of the two answered. Use `source: 'directory'` for the
@@ -48,8 +53,14 @@ the webmail** — change them here, then re-sync.
   needs spelled out.
 
 The policy itself (what counts as a change, when a pin may be substituted
-for a failed lookup, refusing revoked keys) is NOT to be reimplemented in
-the webmail. Only the dialog is per-app.
+for a failed lookup, refusing revoked keys, holding a withdrawn one) is NOT
+to be reimplemented in the webmail. Only the dialog is per-app.
+
+The webmail carried its own `src/pinning.ts` until 0.3.7 — account-scoped
+fingerprint-only TOFU, with no revocation check and no stored key. Owner
+scoping and the withdrawn-key hold came from it and are now in the core;
+the webmail migrates its `kad-pins:<owner>` records on first read and the
+old module is gone.
 
 ## The rule
 

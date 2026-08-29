@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import * as openpgp from 'openpgp';
 import * as pins from '../src/pins';
 
+const OWNER = 'me@kaditham.ie';
 const THEM = 'them@example.org';
 const OTHER = 'other@example.org';
 
@@ -24,13 +25,13 @@ beforeEach(() => { localStorage.clear(); });
 describe('pinning', () => {
   it('pins on first contact and says so', async () => {
     const k = await makeKey(THEM);
-    const r = await pins.resolve(THEM, found(k.pub));
+    const r = await pins.resolve(OWNER, THEM, found(k.pub));
     expect(r.state).toBe('ok');
     if (r.state !== 'ok') return;
     expect(r.firstContact).toBe(true);
     expect(r.offline).toBe(false);
     expect(r.key).toBe(k.pub);
-    const stored = pins.pinFor(THEM)!;
+    const stored = pins.pinFor(OWNER, THEM)!;
     expect(stored.source).toBe('wkd');
     expect(stored.fingerprint).toHaveLength(40);
     expect(stored.fingerprint).toBe(stored.fingerprint.toLowerCase());
@@ -38,15 +39,15 @@ describe('pinning', () => {
 
   it('normalises the address it pins under', async () => {
     const k = await makeKey(THEM);
-    await pins.resolve('  Them@Example.ORG ', found(k.pub));
-    expect(pins.pinFor(THEM)).not.toBeNull();
-    expect(pins.all()).toHaveLength(1);
+    await pins.resolve(OWNER, '  Them@Example.ORG ', found(k.pub));
+    expect(pins.pinFor(OWNER, THEM)).not.toBeNull();
+    expect(pins.all(OWNER)).toHaveLength(1);
   });
 
   it('a second lookup of the same key is not a first contact', async () => {
     const k = await makeKey(THEM);
-    await pins.resolve(THEM, found(k.pub));
-    const r = await pins.resolve(THEM, found(k.pub));
+    await pins.resolve(OWNER, THEM, found(k.pub));
+    const r = await pins.resolve(OWNER, THEM, found(k.pub));
     expect(r.state).toBe('ok');
     if (r.state !== 'ok') return;
     expect(r.firstContact).toBe(false);
@@ -56,32 +57,32 @@ describe('pinning', () => {
     // A rotated subkey or a new user ID leaves the primary fingerprint alone.
     // The pin must take the new armor, or the offline path serves a stale key.
     const k = await makeKey(THEM);
-    await pins.resolve(THEM, found(k.pub));
+    await pins.resolve(OWNER, THEM, found(k.pub));
     const reformed = await openpgp.reformatKey({
       privateKey: k.priv, userIDs: [{ name: 'Them', email: THEM }, { name: 'Them at work', email: OTHER }], format: 'armored',
     });
     expect(reformed.publicKey).not.toBe(k.pub);
-    const r = await pins.resolve(THEM, found(reformed.publicKey));
+    const r = await pins.resolve(OWNER, THEM, found(reformed.publicKey));
     expect(r.state).toBe('ok');
-    expect(pins.pinFor(THEM)!.publicKey).toBe(reformed.publicKey);
+    expect(pins.pinFor(OWNER, THEM)!.publicKey).toBe(reformed.publicKey);
   });
 
   it('reports a different key as changed and writes nothing until accepted', async () => {
     const a = await makeKey(THEM);
-    await pins.resolve(THEM, found(a.pub));
-    const before = pins.pinFor(THEM)!;
+    await pins.resolve(OWNER, THEM, found(a.pub));
+    const before = pins.pinFor(OWNER, THEM)!;
 
     const b = await makeKey(THEM);
-    const r = await pins.resolve(THEM, found(b.pub, 'vks'));
+    const r = await pins.resolve(OWNER, THEM, found(b.pub, 'vks'));
     expect(r.state).toBe('changed');
     if (r.state !== 'changed') return;
     expect(r.pin.fingerprint).toBe(before.fingerprint);
     expect(r.fingerprint).not.toBe(before.fingerprint);
     // declining is simply never calling accept()
-    expect(pins.pinFor(THEM)!.publicKey).toBe(a.pub);
+    expect(pins.pinFor(OWNER, THEM)!.publicKey).toBe(a.pub);
 
-    pins.accept(r);
-    const after = pins.pinFor(THEM)!;
+    pins.accept(OWNER, r);
+    const after = pins.pinFor(OWNER, THEM)!;
     expect(after.publicKey).toBe(b.pub);
     expect(after.source).toBe('vks');
     expect(after.firstSeen).toBe(before.firstSeen); // when the ADDRESS was first known
@@ -89,82 +90,108 @@ describe('pinning', () => {
 
   it('falls back to the pin when nothing can be reached', async () => {
     const k = await makeKey(THEM);
-    await pins.resolve(THEM, found(k.pub));
-    const r = await pins.resolve(THEM, unreachable);
+    await pins.resolve(OWNER, THEM, found(k.pub));
+    const r = await pins.resolve(OWNER, THEM, unreachable);
     expect(r.state).toBe('ok');
     if (r.state !== 'ok') return;
     expect(r.offline).toBe(true);
     expect(r.key).toBe(k.pub);
   });
 
-  it('does NOT substitute the pin when the domain answers and publishes nothing', async () => {
-    // A withdrawn key is a decision by the owner, not a network failure.
+  it('reports a withdrawn key rather than substituting the pin', async () => {
+    // A withdrawn key is a decision by its owner, not a network failure —
+    // and it must never read as "no key yet", which invites plaintext.
     const k = await makeKey(THEM);
-    await pins.resolve(THEM, found(k.pub));
-    const r = await pins.resolve(THEM, publishesNone);
-    expect(r.state).toBe('missing');
-    if (r.state !== 'missing') return;
-    expect(r.hadPin).toBe(true);
-    expect(r.status).toBe('none');
+    await pins.resolve(OWNER, THEM, found(k.pub));
+    const r = await pins.resolve(OWNER, THEM, publishesNone);
+    expect(r.state).toBe('withdrawn');
+    if (r.state !== 'withdrawn') return;
+    expect(r.pin.publicKey).toBe(k.pub);
   });
 
   it('misses cleanly for an address that was never pinned', async () => {
-    const r = await pins.resolve(THEM, unreachable);
+    const r = await pins.resolve(OWNER, THEM, unreachable);
     expect(r.state).toBe('missing');
     if (r.state !== 'missing') return;
-    expect(r.hadPin).toBe(false);
-    expect(pins.all()).toHaveLength(0);
+    expect(pins.all(OWNER)).toHaveLength(0);
   });
 
   it('stops on a revoked key even though its fingerprint is unchanged', async () => {
     const k = await makeKey(THEM);
-    await pins.resolve(THEM, found(k.pub));
+    await pins.resolve(OWNER, THEM, found(k.pub));
     const { publicKey: revoked } = await openpgp.revokeKey({ key: k.priv, format: 'armored' });
 
-    const r = await pins.resolve(THEM, found(revoked));
+    const r = await pins.resolve(OWNER, THEM, found(revoked));
     expect(r.state).toBe('revoked');
-    expect(pins.pinFor(THEM)!.revokedAt).toBeTruthy();
+    expect(pins.pinFor(OWNER, THEM)!.revokedAt).toBeTruthy();
 
-    // and the offline path must never serve it again
-    const off = await pins.resolve(THEM, unreachable);
-    expect(off.state).toBe('missing');
+    // and the offline path must never serve it again — it says why, rather
+    // than reporting a vague "no key found"
+    const off = await pins.resolve(OWNER, THEM, unreachable);
+    expect(off.state).toBe('revoked');
 
     // nor may a copy served WITHOUT the revocation signature reinstate it
-    const rollback = await pins.resolve(THEM, found(k.pub));
+    const rollback = await pins.resolve(OWNER, THEM, found(k.pub));
     expect(rollback.state).toBe('revoked');
-    expect(pins.pinFor(THEM)!.revokedAt).toBeTruthy();
+    expect(pins.pinFor(OWNER, THEM)!.revokedAt).toBeTruthy();
   });
 
   it('lets a genuinely new key replace a revoked one, once accepted', async () => {
     const old = await makeKey(THEM);
-    await pins.resolve(THEM, found(old.pub));
+    await pins.resolve(OWNER, THEM, found(old.pub));
     const { publicKey: revoked } = await openpgp.revokeKey({ key: old.priv, format: 'armored' });
-    await pins.resolve(THEM, found(revoked));
+    await pins.resolve(OWNER, THEM, found(revoked));
 
     const fresh = await makeKey(THEM);
-    const r = await pins.resolve(THEM, found(fresh.pub));
+    const r = await pins.resolve(OWNER, THEM, found(fresh.pub));
     expect(r.state).toBe('changed');
     if (r.state !== 'changed') return;
-    pins.accept(r);
-    const now = pins.pinFor(THEM)!;
+    pins.accept(OWNER, r);
+    const now = pins.pinFor(OWNER, THEM)!;
     expect(now.publicKey).toBe(fresh.pub);
     expect(now.revokedAt).toBeUndefined();
   });
 
   it('lists and forgets', async () => {
-    await pins.resolve(THEM, found((await makeKey(THEM)).pub));
-    await pins.resolve(OTHER, found((await makeKey(OTHER)).pub));
-    expect(pins.all().map((p) => p.address)).toEqual([OTHER, THEM]);
-    pins.forget(THEM);
-    expect(pins.pinFor(THEM)).toBeNull();
-    expect(pins.all()).toHaveLength(1);
+    await pins.resolve(OWNER, THEM, found((await makeKey(THEM)).pub));
+    await pins.resolve(OWNER, OTHER, found((await makeKey(OTHER)).pub));
+    expect(pins.all(OWNER).map((p) => p.address)).toEqual([OTHER, THEM]);
+    pins.forget(OWNER, THEM);
+    expect(pins.pinFor(OWNER, THEM)).toBeNull();
+    expect(pins.all(OWNER)).toHaveLength(1);
+  });
+
+  it('keeps one account\'s trust out of another\'s', async () => {
+    const mine = await makeKey(THEM);
+    await pins.resolve(OWNER, THEM, found(mine.pub));
+    // a second account on the same machine has decided nothing
+    expect(pins.pinFor('someone@else.test', THEM)).toBeNull();
+    expect(pins.all('someone@else.test')).toHaveLength(0);
+    // and its own first contact is a first contact, not a change
+    const theirs = await makeKey(THEM);
+    const r = await pins.resolve('someone@else.test', THEM, found(theirs.pub));
+    expect(r.state).toBe('ok');
+    if (r.state !== 'ok') return;
+    expect(r.firstContact).toBe(true);
+    expect(pins.pinFor(OWNER, THEM)!.publicKey).toBe(mine.pub); // untouched
+  });
+
+  it('adopts pins written before scoping existed', async () => {
+    const k = await makeKey(THEM);
+    const legacy = { address: THEM, fingerprint: 'a'.repeat(40), publicKey: k.pub, source: 'wkd',
+      firstSeen: '2026-01-01T00:00:00.000Z', lastSeen: '2026-01-01T00:00:00.000Z' };
+    localStorage.setItem('saavi-pin-' + THEM, JSON.stringify(legacy));
+    // the device scope inherits it; a named account does not
+    expect(pins.pinFor('', THEM)!.firstSeen).toBe('2026-01-01T00:00:00.000Z');
+    expect(localStorage.getItem('saavi-pin-' + THEM)).toBeNull();
+    expect(pins.pinFor(OWNER, THEM)).toBeNull();
   });
 
   it('ignores unreadable records rather than quarantining them', async () => {
     // Unlike a private key, a pin is always re-derivable from the network.
-    localStorage.setItem('saavi-pin-broken@example.org', '{not json');
-    expect(pins.all()).toHaveLength(0);
-    expect(pins.pinFor('broken@example.org')).toBeNull();
+    localStorage.setItem(`saavi-pin-${OWNER}|broken@example.org`, '{not json');
+    expect(pins.all(OWNER)).toHaveLength(0);
+    expect(pins.pinFor(OWNER, 'broken@example.org')).toBeNull();
   });
 });
 
