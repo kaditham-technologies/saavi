@@ -13,7 +13,7 @@
 //    are stored passphrase-locked (OpenPGP S2K); unlocked keys live only in
 //    `sessionKeys`, in process memory.
 import * as openpgp from 'openpgp';
-import { keyCarriesAddress } from './wkd';
+import { addressesIn, keyCarriesAddress } from './wkd';
 
 const STORE_PREFIX = 'saavi-ring-';
 
@@ -114,7 +114,7 @@ export function ringFor(email: string): KeyRing | null {
   return load(email);
 }
 
-function fmtFpr(raw: string): string {
+export function fmtFpr(raw: string): string {
   return raw.toUpperCase().replace(/(.{4})/g, '$1 ').trim();
 }
 
@@ -126,6 +126,44 @@ async function rawFingerprint(rec: KeyRecord): Promise<string> {
 export async function fingerprintOf(armoredPublicKey: string): Promise<string> {
   const key = await openpgp.readKey({ armoredKey: armoredPublicKey });
   return fmtFpr(key.getFingerprint());
+}
+
+/** Raw (unformatted, lowercase) fingerprint — what pins compare on. */
+export async function rawFingerprintOf(armoredPublicKey: string): Promise<string> {
+  return (await openpgp.readKey({ armoredKey: armoredPublicKey })).getFingerprint();
+}
+
+export interface KeyState {
+  fingerprint: string;
+  revoked: boolean;
+  /** Has a valid encryption key RIGHT NOW — false covers an expired primary,
+   *  an expired or revoked encryption subkey, and a sign-only key. */
+  usable: boolean;
+  /** Why not, when usable is false. */
+  reason: string;
+}
+
+/**
+ * Inspect a public key before encrypting to it. Revocation and expiry leave
+ * the fingerprint untouched, so a caller that only compares fingerprints
+ * (pins.ts) cannot see either — it has to ask here, every time.
+ */
+export async function keyState(armoredPublicKey: string): Promise<KeyState> {
+  const key = await openpgp.readKey({ armoredKey: armoredPublicKey });
+  const fingerprint = key.getFingerprint();
+  if (await key.isRevoked()) return { fingerprint, revoked: true, usable: false, reason: 'revoked by its owner' };
+  try {
+    await key.getEncryptionKey();
+    return { fingerprint, revoked: false, usable: true, reason: '' };
+  } catch (e) {
+    return { fingerprint, revoked: false, usable: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** The address a key is primarily known by — what a pasted key gets pinned
+ *  under. Null when the key carries no address at all. */
+export async function primaryAddressOf(armoredPublicKey: string): Promise<string | null> {
+  return addressesIn(await openpgp.readKey({ armoredKey: armoredPublicKey }))[0] ?? null;
 }
 
 /** Adopt a new active record, retiring any current active key. Re-adopting

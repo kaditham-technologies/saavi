@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **Saavi remembers whose key is whose.** Until now every seal asked WKD (or
+  keys.openpgp.org) fresh and forgot the answer, so a rotated key and a
+  substituted key were the same silent event. The first key seen for an
+  address is now remembered, and a later answer that disagrees stops the
+  seal and shows both fingerprints side by side until you accept it. A
+  first contact shows the fingerprint it just pinned, which is the one
+  moment you can still check it with the person. Remembered addresses are
+  listed under Keys, and can be forgotten there.
+- **Revoked recipient keys are refused.** Revoking a key does not change its
+  fingerprint, so a key check that only compares fingerprints cannot see it.
+  Every discovered key is now inspected before use: a revoked one is
+  refused by name, remembered as revoked, and never served again — not even
+  by a later copy published without the revocation signature.
+- **Sealing works offline to people you have sealed to before.** When no key
+  server can be reached at all, the remembered key is used and the message
+  says so. A domain that answers and no longer publishes a key is a
+  different matter — that is a withdrawal, and the remembered key is not
+  substituted for it.
+- **A pasted public key is remembered under its own address only.** A key
+  may name several addresses, including ones its holder does not own, so
+  only the address it is primarily known by is pinned.
+- **Fixed: the keyring's internal records were read as if they were
+  addresses.** The store's alert list and any quarantined record share the
+  key prefix used for addresses, so once a record had been quarantined every
+  subsequent read quarantined the alert list again, over and over.
+
 - **Publish reaches your own domain.** "Publish key…" now also submits the
   public key to Kaditham's Web Key Directory when the address's domain is
   served there ("encrypted-email-ready" domains) — a confirmation mail to

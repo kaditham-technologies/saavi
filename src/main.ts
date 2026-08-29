@@ -8,6 +8,7 @@ import * as pgp from './pgp';
 import * as gpg from './gpg';
 import * as keychain from './keychain';
 import { wkdProbe } from './wkd';
+import * as pins from './pins';
 import { vksLookup, vksLookupKeyId, vksUpload, vksRequestVerify } from './vks';
 import { ask, confirmBox, notice } from './ui';
 import { generatePassphrase, passphraseBits, describeStrength } from './passphrase';
@@ -45,7 +46,12 @@ function ringAddresses(): string[] {
   const out: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i)!;
-    if (k.startsWith('saavi-ring-')) out.push(k.slice('saavi-ring-'.length));
+    if (!k.startsWith('saavi-ring-')) continue;
+    const a = k.slice('saavi-ring-'.length);
+    // The alerts list and quarantined records share this prefix. Treating
+    // them as addresses makes every read re-quarantine them, so an address
+    // is required to look like one.
+    if (a.includes('@')) out.push(a);
   }
   return out.sort();
 }
@@ -385,6 +391,31 @@ function rowFor(cells: { dot: boolean; dotTitle: string; addr: string; id: strin
 const fmtDate = (iso: string | null): string =>
   iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
+const SOURCE_NAME: Record<pins.PinSource, string> = {
+  wkd: 'the domain (WKD)', vks: 'keys.openpgp.org', directory: 'the Kaditham directory', paste: 'a pasted key',
+};
+
+/** A remembered recipient key. Deliberately NOT selectable: the Backup /
+ *  Details / Delete tools act on keys you hold, and a pin is someone else's
+ *  public key. Forgetting one is the only thing you can do to it here. */
+function pinRow(p: pins.Pin): HTMLElement {
+  // Its own class, not .row: the key table's row selector (and markSelected)
+  // must keep meaning "a key you hold".
+  const row = el('div', 'prow' + (p.revokedAt ? ' prow-dead' : ''));
+  const dot = el('span', 'dot');
+  dot.title = p.revokedAt ? 'Revoked by its owner' : `Remembered from ${SOURCE_NAME[p.source]}`;
+  const end = el('span', 'c-end pin-end');
+  end.append(el('span', 'chip', p.revokedAt ? 'revoked' : p.source));
+  const forget = el('button', 'ghost pin-forget', 'Forget');
+  forget.title = `Forget the key remembered for ${p.address}. The next seal to that address is treated as a first contact again.`;
+  forget.addEventListener('click', () => { pins.forget(p.address); void refreshKeys(); });
+  end.append(forget);
+  row.append(dot, el('span', 'c-addr', p.address), el('span', 'c-id', '…' + p.fingerprint.slice(-8).toUpperCase()),
+    el('span', 'c-date', fmtDate(p.firstSeen)), end);
+  row.title = `${pgp.fmtFpr(p.fingerprint)}\nfrom ${SOURCE_NAME[p.source]}\nfirst seen ${fmtDate(p.firstSeen)} · last confirmed ${fmtDate(p.lastSeen)}`;
+  return row;
+}
+
 function markSelected(rows: HTMLElement, row: HTMLElement): void {
   for (const r of rows.querySelectorAll('.row')) r.classList.toggle('sel', r === row);
   syncTools();
@@ -454,6 +485,16 @@ async function refreshKeys(): Promise<void> {
       void openDetails();
     });
     rows.append(row);
+  }
+  // Keys REMEMBERED for other people — the record that makes a changed key
+  // detectable. Not keys you hold, so they sit below your own.
+  const pinned = pins.all();
+  if (pinned.length) {
+    const head = el('div', 'pin-head');
+    head.append(el('span', 'pin-head-t', `Known addresses · ${pinned.length}`));
+    head.append(el('span', 'hint', 'Keys remembered for people you seal to. Saavi stops and asks if one of them ever changes.'));
+    rows.append(head);
+    for (const p of pinned) rows.append(pinRow(p));
   }
   const unlocked = flat.filter((f) => f.info.unlocked).length;
   const n = ringAddresses().length;
@@ -1097,47 +1138,139 @@ async function kadithamWkdPublish(address: string, publicKey: string): Promise<'
   }
 }
 
-async function unsealCandidates(toRaw: string): Promise<string[]> {
+/**
+ * Public keys a signature may be checked against: own keys, every pinned
+ * recipient, and whatever the To field names.
+ *
+ * Verifying is NOT a trust decision — a verdict reports a fingerprint, it
+ * does not authorise sending anything to it — so lookups here never write a
+ * pin and never interrupt with a key-change question. Sealing is the only
+ * path that pins.
+ */
+async function verifyCandidates(toRaw: string): Promise<string[]> {
   const cands: string[] = [];
   for (const email of ringAddresses()) {
     const k = pgp.keysFor(email);
     if (k) cands.push(k.publicKey);
   }
-  if (toRaw) {
-    const { keys } = await resolveSaaviRecipients(toRaw);
-    cands.push(...keys);
+  for (const p of pins.all()) cands.push(p.publicKey);
+  if (!toRaw) return cands;
+  if (toRaw.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
+    cands.push(pgp.normalizeKeyArmor(toRaw));
+    return cands;
+  }
+  for (const addr of splitAddresses(toRaw)) {
+    if (pins.pinFor(addr)) continue;
+    const got = await discover(addr);
+    if (got.key) cands.push(got.key);
   }
   return cands;
 }
 
-/** Saavi store: resolve the To field to armored public keys. */
 /** Split a To field: commas, semicolons, whitespace and newlines all separate addresses. */
 function splitAddresses(raw: string): string[] {
   return raw.split(/[\s,;]+/).map((s) => s.trim().toLowerCase().replace(/^<|>$/g, '')).filter(Boolean);
 }
 
-async function resolveSaaviRecipients(toRaw: string): Promise<{ keys: string[]; missing: string[]; why: string[] }> {
-  const keys: string[] = [];
-  const missing: string[] = [];
-  const why: string[] = [];
+/** The discovery chain: the domain's own WKD first, then the verifying
+ *  keyserver. The webmail injects its directory ahead of both. */
+async function discover(address: string): Promise<pins.Lookup> {
+  const w = await wkdProbe(address);
+  if (w.key) return { key: w.key, source: 'wkd', status: 'found' };
+  const v = await vksLookup(address);
+  if (v) return { key: v, source: 'vks', status: 'found' };
+  return { key: null, source: 'wkd', status: w.status, detail: w.detail };
+}
+
+function missingWhy(r: Extract<pins.Resolution, { state: 'missing' }>): string {
+  const domain = r.address.split('@')[1] ?? '';
+  const base = r.status === 'unreachable'
+    ? `${r.address}: ${domain} could not be reached for WKD${r.detail ? ` (${r.detail})` : ''} — check the connection`
+    : `${r.address}: ${domain} publishes no key for this address (WKD), and none is on keys.openpgp.org`;
+  // A withdrawn key is not the same as a network failure: the remembered one
+  // is deliberately NOT substituted, and the user should know it exists.
+  return r.hadPin && r.status === 'none'
+    ? `${base} — a key remembered for this address is still under Keys, but the address no longer publishes it`
+    : base;
+}
+
+/** One question for every recipient whose key changed, not one each. */
+async function acceptKeyChanges(cs: Extract<pins.Resolution, { state: 'changed' }>[]): Promise<boolean> {
+  const one = cs.length === 1;
+  const detail = cs.map((c) =>
+    `${c.address}\n  was  ${pgp.fmtFpr(c.pin.fingerprint)}\n       ${SOURCE_NAME[c.pin.source]}, first seen ${fmtDate(c.pin.firstSeen)}\n  now  ${pgp.fmtFpr(c.fingerprint)}\n       ${SOURCE_NAME[c.source]}`,
+  ).join('\n\n');
+  return confirmBox(
+    one ? `The key for ${cs[0].address} has changed` : `${cs.length} recipient keys have changed`,
+    'This is normal after a key rotation. It is also exactly what an attacker substituting their own key looks like.\n\n'
+    + `Confirm the new fingerprint${one ? '' : 's'} with ${one ? 'them' : 'each of them'} over some channel that is not this one before accepting.`,
+    one ? 'Accept the new key' : 'Accept the new keys', true, detail);
+}
+
+interface Recipients { keys: string[]; missing: string[]; why: string[]; notes: string[] }
+
+/** Turn resolutions into keys to seal to, reasons not to, and things the
+ *  user should be told about keys that WERE accepted. */
+async function settle(rs: pins.Resolution[]): Promise<Recipients> {
+  const out: Recipients = { keys: [], missing: [], why: [], notes: [] };
+  const changed = rs.filter((r): r is Extract<pins.Resolution, { state: 'changed' }> => r.state === 'changed');
+  const accepted = changed.length ? await acceptKeyChanges(changed) : false;
+  for (const r of rs) {
+    switch (r.state) {
+      case 'ok':
+        out.keys.push(r.key);
+        // Trust on first use is only trustworthy if the first use is VISIBLE:
+        // this is the one moment the fingerprint can still be checked.
+        if (r.firstContact && r.pin) {
+          out.notes.push(`First time sealing to ${r.address} — its key is ${pgp.fmtFpr(r.pin.fingerprint)}, now remembered. Confirm that with them out of band.`);
+        } else if (r.offline && r.pin) {
+          out.notes.push(`${r.address} could not be looked up; sealed to the key remembered since ${fmtDate(r.pin.firstSeen)}.`);
+        }
+        break;
+      case 'changed':
+        if (accepted) { pins.accept(r); out.keys.push(r.key); }
+        else { out.missing.push(r.address); out.why.push(`${r.address}: the published key changed and was not accepted`); }
+        break;
+      case 'revoked':
+        out.missing.push(r.address);
+        out.why.push(`${r.address}: that key has been REVOKED by its owner (${pgp.fmtFpr(r.fingerprint)}) — ask them for the replacement`);
+        break;
+      case 'unusable':
+        out.missing.push(r.address);
+        out.why.push(`${r.address}: the published key cannot encrypt — ${r.reason}`);
+        break;
+      case 'missing':
+        out.missing.push(r.address);
+        out.why.push(missingWhy(r));
+        break;
+    }
+  }
+  return out;
+}
+
+/** Saavi store: resolve the To field to armored public keys, applying the
+ *  pinning policy in pins.ts to everything discovered over the network. */
+async function resolveSaaviRecipients(toRaw: string): Promise<Recipients> {
   if (toRaw.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
-    keys.push(pgp.normalizeKeyArmor(toRaw));
-    return { keys, missing, why };
+    const armored = pgp.normalizeKeyArmor(toRaw);
+    // A pasted key is pinned under its PRIMARY address only. Pinning every
+    // address in its user IDs would let a key that also claims a colleague's
+    // address quietly become the remembered key for that colleague.
+    const addr = await pgp.primaryAddressOf(armored).catch(() => null);
+    if (!addr) return { keys: [armored], missing: [], why: [], notes: ['Sealed to a pasted key that names no address — nothing was remembered.'] };
+    return settle([await pins.resolve(addr, async () => ({ key: armored, source: 'paste', status: 'found' }))]);
   }
+  const own: string[] = [];
+  const looked: pins.Resolution[] = [];
   for (const addr of splitAddresses(toRaw)) {
-    const own = pgp.keysFor(addr)?.publicKey;
-    if (own) { keys.push(own); continue; }
-    const w = await wkdProbe(addr);
-    if (w.key) { keys.push(w.key); continue; }
-    const v = await vksLookup(addr);
-    if (v) { keys.push(v); continue; }
-    missing.push(addr);
-    const domain = addr.split('@')[1] ?? '';
-    why.push(w.status === 'unreachable'
-      ? `${addr}: ${domain} could not be reached for WKD${w.detail ? ` (${w.detail})` : ''} — check the connection`
-      : `${addr}: ${domain} publishes no key for this address (WKD), and none is on keys.openpgp.org`);
+    // Your own ring IS the pin for your own addresses.
+    const mine = pgp.keysFor(addr)?.publicKey;
+    if (mine) { own.push(mine); continue; }
+    looked.push(await pins.resolve(addr, discover));
   }
-  return { keys, missing, why };
+  const out = await settle(looked);
+  out.keys.unshift(...own);
+  return out;
 }
 
 /** Make sure the Saavi signing key is unlocked; prompts if not. Resolves false if the user bails. */
@@ -1196,9 +1329,11 @@ $('seal-enc').addEventListener('click', async () => {
   btn.textContent = 'Looking up keys…';
   try {
     if (source === 'system') return await sealWithSystem(text, toRaw);
-    const { keys, missing, why } = await resolveSaaviRecipients(toRaw);
+    const { keys, missing, why, notes } = await resolveSaaviRecipients(toRaw);
     btn.textContent = label;
-    if (missing.length) return sealFail(`No key found. ${why.join('. ')}. Ask them for their public key and paste it into To instead.`);
+    // Nothing is sealed while ANY recipient is unresolved: a partial send
+    // reaches some people and silently drops the rest.
+    if (missing.length) return sealFail(`Not sealed. ${why.join('. ')}.`);
     const signer = signAs();
     if (signer && !await ensureUnlocked(signer)) return sealFail('Not sealed — the signing key stayed locked.');
     // Also seal to the signing identity's own key, so the sender keeps a
@@ -1206,6 +1341,13 @@ $('seal-enc').addEventListener('click', async () => {
     const self = signer ? pgp.keysFor(signer)?.publicKey : null;
     if (self) keys.push(self);
     sealShow(signer ? 'Sealed and signed message (also readable by you)' : 'Sealed message', await pgp.encryptText(text, keys, signer || undefined, { sign: !!signer }));
+    // sealShow hides the verdict strip when there are no signatures to
+    // report; a first-contact fingerprint has to bring it back.
+    if (notes.length) {
+      const strip = $('seal-sig');
+      strip.hidden = false;
+      strip.append(...notes.map((n) => el('span', 'sig sig-warn', n)));
+    }
   } catch (e2) {
     sealFail(errMsg(e2));
   } finally {
@@ -1240,9 +1382,7 @@ $('seal-verify').addEventListener('click', async () => {
     }
     // Saavi store: candidates are own keys, a pasted key in To, and lookups for addresses in To.
     const toRaw = recipientsRaw();
-    const cands: string[] = [];
-    for (const email of ringAddresses()) { const k = pgp.keysFor(email); if (k) cands.push(k.publicKey); }
-    if (toRaw) cands.push(...(await resolveSaaviRecipients(toRaw)).keys);
+    const cands = await verifyCandidates(toRaw);
     const v = await pgp.verifyText(text, cands);
     // "Your key" is a FINGERPRINT comparison — never a match on the UID
     // string, which the key's author writes and can embed your address in.
@@ -1276,7 +1416,7 @@ $('seal-dec').addEventListener('click', async () => {
       // Verify against own keys + anything the To field names; a signer we
       // still don't know is looked up by key ID (an untrusted candidate —
       // it can name the signer, never vouch for them).
-      const cands = await unsealCandidates(recipientsRaw());
+      const cands = await verifyCandidates(recipientsRaw());
       let out = await pgp.decryptText(text, cands);
       const unknown = out.signatures.filter((s) => s.status === 'unknown-key');
       if (unknown.length) {

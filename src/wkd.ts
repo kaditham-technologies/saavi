@@ -95,6 +95,20 @@ export function keyCarriesAddress(key: openpgp.Key, address: string): boolean {
   });
 }
 
+/** Every address in a key's user IDs, primary first, lowercased and
+ *  de-duplicated. A key may legitimately claim several; it may also claim
+ *  ones its holder does not own, so a CALLER must never treat this as
+ *  permission to act for those addresses. */
+export function addressesIn(key: openpgp.Key): string[] {
+  const out: string[] = [];
+  for (const uid of key.getUserIDs()) {
+    const m = uid.match(/<([^>]+)>\s*$/);
+    const a = (m ? m[1] : uid).trim().toLowerCase();
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(a) && !out.includes(a)) out.push(a);
+  }
+  return out;
+}
+
 export interface WkdResult {
   key: string | null;
   /** 'none': the domain answered but publishes no key for this address;

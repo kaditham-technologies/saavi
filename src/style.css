@@ -212,6 +212,43 @@ button:focus:not(:focus-visible) { outline: none; }
 .ring-note { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch; }
 .row.dead .c-addr, .row.dead .c-id { text-decoration: line-through; opacity: 0.6; }
 .row.dead .chip { color: #c0392b; }
+
+/* Remembered recipient keys (pins) — a second, non-selectable section of
+   the keyring table. */
+.pin-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 14px 16px 6px; border-top: 1px solid var(--hairline); margin-top: 6px;
+}
+.pin-head-t {
+  font-size: 10.5px; font-family: var(--mono); text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--ink-3);
+}
+.pin-head .hint { font-size: 11.5px; }
+.prow {
+  display: grid;
+  grid-template-columns: 26px minmax(160px, 1.4fr) 100px 110px auto;
+  gap: 8px; align-items: center; padding: 7px 16px;
+  font-size: 13px; color: var(--ink); border-bottom: 1px solid var(--hairline);
+}
+.prow-dead .c-addr, .prow-dead .c-id { text-decoration: line-through; opacity: 0.6; }
+.prow-dead .chip { color: #c0392b; }
+.pin-end { display: flex; align-items: center; gap: 8px; }
+.pin-forget { opacity: 0; transition: opacity 0.13s var(--ease-out); }
+.prow:hover .pin-forget, .pin-forget:focus-visible { opacity: 1; }
+
+/* Used by the pin rows and by the store-corruption bar, neither of which
+   had a style of its own. */
+.ghost {
+  font: inherit; font-size: 11.5px; color: var(--ink-2);
+  background: none; border: 1px solid var(--border); border-radius: 7px;
+  padding: 2px 9px; cursor: pointer;
+}
+.ghost:hover { color: var(--ink); border-color: var(--ink-3); }
+.alert-bar {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 10px 16px; font-size: 12.5px; line-height: 1.5;
+  border-bottom: 1px solid var(--hairline); background: var(--accent-soft);
+}
 body.src-system #act-lock { display: none; }
 body.src-system .dot-open { background: var(--accent); box-shadow: 0 0 6px color-mix(in oklch, var(--accent) 50%, transparent); }
 
