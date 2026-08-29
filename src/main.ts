@@ -669,12 +669,14 @@ async function openDetails(): Promise<void> {
           const kad = await kadithamWkdPublish(s.email, pub);
           const up = await vksUpload(pub);
           const st = Object.entries(up.status).find(([a]) => a.toLowerCase() === s.email.toLowerCase())?.[1];
-          const kadLine = kad === 'sent'
+          const kadLine = kad.state === 'sent'
             ? `\n\nKaditham WKD: a confirmation mail is on its way to ${s.email} as well — its link makes the key discoverable at your own domain.`
-            : '';
+            : kad.state === 'failed'
+              ? `\n\nKaditham WKD: NOT published — ${kad.why}. The keyserver upload above is unaffected; try Publish again to retry just this part.`
+              : '';
           if (st === 'published') return notice('Published', `${s.email} is verified on keys.openpgp.org — the key is findable by email.${kadLine}`);
           await vksRequestVerify(up.token, [s.email]);
-          await notice('One step left', `Uploaded. A verification message from keys.openpgp.org is on its way to ${s.email} — click its link to make the key findable by email. It is findable by fingerprint already.${kadLine}`);
+          await notice('One step left', `Uploaded. A verification message from keys.openpgp.org is on its way to ${s.email} — click its link to make the key findable by email. It is findable by fingerprint already.\n\nCheck the spam folder if it does not arrive: these are automated mails from a keyserver, and filters treat them accordingly.${kadLine}`);
         });
       }
       action('Revocation certificate…', async () => {
@@ -776,7 +778,7 @@ async function openDetails(): Promise<void> {
         if (!emails.length) return notice('Published', 'Uploaded — findable by fingerprint.');
         if (!pending.length) return notice('Published', 'Every address on this key is verified — it is findable by email.');
         await vksRequestVerify(up.token, pending);
-        await notice('One step left', `Uploaded. Verification messages are on their way to ${pending.join(', ')} — the key is findable by fingerprint already, by email once confirmed.`);
+        await notice('One step left', `Uploaded. Verification messages are on their way to ${pending.join(', ')} — the key is findable by fingerprint already, by email once confirmed.\n\nCheck the spam folder if one does not arrive: these are automated mails from a keyserver, and filters treat them accordingly.`);
       });
       action('Revocation certificate…', async () => {
         const go = await ask({
@@ -957,6 +959,24 @@ $('m-pass').addEventListener('input', () => {
   $('m-strength').textContent = describeStrength(($('m-pass') as HTMLInputElement).value).label;
 });
 
+// The fingerprint is shown so it can be read to someone or filed with the
+// backup — both of which start with getting it out of the window.
+$('done-fpr-copy').addEventListener('click', async () => {
+  const b = $('done-fpr-copy');
+  try {
+    await navigator.clipboard.writeText($('done-fpr').textContent ?? '');
+    b.textContent = 'Copied';
+  } catch {
+    const r = document.createRange();
+    r.selectNodeContents($('done-fpr'));
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(r);
+    b.textContent = 'Selected';
+  }
+  setTimeout(() => { b.textContent = 'Copy'; }, 1600);
+});
+
 $('m-save-backup').addEventListener('click', async () => {
   if (!doneFor) return;
   const b = $('m-save-backup') as HTMLButtonElement;
@@ -1124,7 +1144,11 @@ function verdictInfos(verdicts: pgp.SigVerdict[], ownFprs: Set<string>): gpg.Sig
  *  Browser builds hit CORS here — the shell's Rust-side http client is the
  *  supported path, matching wkd.ts. */
 const KADITHAM_WKD_PUBLISH = 'https://mail.kaditham.ie/signup/api/wkd/publish';
-async function kadithamWkdPublish(address: string, publicKey: string): Promise<'sent' | 'unsupported' | 'unavailable'> {
+type WkdPublish =
+  | { state: 'sent' }
+  | { state: 'unsupported' }              // domain not served — not an error
+  | { state: 'failed'; why: string };
+async function kadithamWkdPublish(address: string, publicKey: string): Promise<WkdPublish> {
   try {
     const init: RequestInit = {
       method: 'POST',
@@ -1135,11 +1159,16 @@ async function kadithamWkdPublish(address: string, publicKey: string): Promise<'
     const r = '__TAURI_INTERNALS__' in window
       ? await (await import('@tauri-apps/plugin-http')).fetch(KADITHAM_WKD_PUBLISH, init)
       : await fetch(KADITHAM_WKD_PUBLISH, init);
-    if (r.ok) return 'sent';
-    if (r.status === 403) return 'unsupported';   // domain not served — not an error
-    return 'unavailable';
-  } catch {
-    return 'unavailable';
+    if (r.ok) return { state: 'sent' };
+    if (r.status === 403) return { state: 'unsupported' };
+    // The endpoint explains itself — rate limits, a key that carries no user
+    // ID for this address, mail being down. Discarding that and saying
+    // nothing at all was the old behaviour, and it left people believing
+    // their key was published at their own domain when it was not.
+    const said = await r.json().catch(() => null) as { error?: string } | null;
+    return { state: 'failed', why: said?.error ?? `the server answered ${r.status}` };
+  } catch (e) {
+    return { state: 'failed', why: errMsg(e) };
   }
 }
 

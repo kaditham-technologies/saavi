@@ -360,6 +360,12 @@ body.src-system .dot-open { background: var(--accent); box-shadow: 0 0 6px color
 .ask-veil { z-index: 60; }
 .ask-card { width: min(440px, 100%); }
 .ask-code { white-space: pre-wrap; }
+/* The code box carries its own Copy: a fingerprint or an armored key is
+   shown so it can be used somewhere else, and drag-selecting one inside a
+   webview is the worst way to get it there. */
+.ask-code-wrap { position: relative; }
+.ask-code-wrap .fpr { margin: 0; padding-right: 74px; }
+.ask-copy { position: absolute; top: 6px; right: 6px; }
 .ask-card .hint { white-space: pre-line; }
 .primary.danger { background: #c0392b !important; border-color: #c0392b !important; }
 

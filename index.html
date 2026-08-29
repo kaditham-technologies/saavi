@@ -146,7 +146,10 @@
         <p class="hint">Your new key is ready and unlocked for this session. Save the
         backup file somewhere safe — with your passphrase, it is the only way to
         recover this key.</p>
-        <p id="done-fpr" class="fpr" title="Fingerprint — compare it out of band"></p>
+        <div class="ask-code-wrap">
+          <p id="done-fpr" class="fpr" title="Fingerprint — compare it out of band"></p>
+          <button type="button" id="done-fpr-copy" class="mini ask-copy">Copy</button>
+        </div>
         <button type="button" id="m-save-backup" class="primary">Save backup file…</button>
         <p id="done-saved" class="hint" role="status"></p>
       </div>

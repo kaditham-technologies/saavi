@@ -43,7 +43,36 @@ export function ask(o: AskOptions): Promise<Record<string, string> | null> {
     veil.append(card);
     card.append(el('h2', undefined, o.title));
     if (o.message) card.append(el('p', 'hint', o.message));
-    if (o.code) card.append(el('pre', 'fpr ask-code', o.code));
+    // Anything shown in the code box is there to be USED elsewhere — a
+    // fingerprint to read down the phone, a public key to paste into a mail.
+    // Drag-selecting an armored block inside a webview is miserable, so the
+    // box carries its own copy button.
+    if (o.code) {
+      const wrap = el('div', 'ask-code-wrap');
+      wrap.append(el('pre', 'fpr ask-code', o.code));
+      const copy = el('button', 'mini ask-copy', 'Copy');
+      copy.type = 'button';
+      copy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(o.code!);
+          copy.textContent = 'Copied';
+        } catch {
+          // Clipboard denied: select it instead, so the keyboard still works.
+          const pre = wrap.querySelector('pre');
+          if (pre) {
+            const r = document.createRange();
+            r.selectNodeContents(pre);
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(r);
+          }
+          copy.textContent = 'Selected';
+        }
+        setTimeout(() => { copy.textContent = 'Copy'; }, 1600);
+      });
+      wrap.append(copy);
+      card.append(wrap);
+    }
     const inputs: { name: string; get: () => string }[] = [];
     for (const f of o.fields ?? []) {
       const lab = el('label', 'fld');
@@ -69,6 +98,9 @@ export function ask(o: AskOptions): Promise<Record<string, string> | null> {
     const acts = el('div', 'card-acts');
     const cancel = el('button', undefined, o.cancel ?? 'Cancel');
     cancel.type = 'button';
+    // notice() passes cancel:'' to mean "there is only one way out of this
+    // dialog" — an empty button still rendered, a blank chip beside Close.
+    cancel.hidden = o.cancel === '';
     const ok = el('button', 'primary' + (o.danger ? ' danger' : ''), o.ok ?? 'OK');
     ok.type = 'submit';
     acts.append(cancel, ok);
