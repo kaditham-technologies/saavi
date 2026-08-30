@@ -185,8 +185,51 @@ open item V4 — which protected headers do not address at all.
    2026-08-30** — four findings, all closed: a `foldHeader` bug that dropped
    the separator when folding a long header (saavi `5c68f16`, so twelve
    recipients parsed back as two and the reader accused legitimate ones), plus
-   the three attribution refinements recorded under 3. **cerberus still
-   outstanding.**
+   the three attribution refinements recorded under 3. **cerberus DONE
+   2026-08-30** — nine findings, and none of them a way to pin a wrong key: it
+   could construct no route to `pins.remember` for a key not currently
+   published for the address, and concurs with keeping the pin. Open, in ITS
+   numbering (NOT the earlier V4-V7 series):
+
+   - **V-1 MEDIUM-HIGH — the reader compares the signed headers but still
+     *displays* the unsigned ones.** `messageMeta` renders the envelope
+     From/To/Cc/date as the headline; the H2 verdict is a small chip beneath.
+     This is the thing line 53 above calls insufficient — "the security comes
+     from displaying what was signed". For To/Cc there is no comparison at
+     all: we ask only "am I in the signed set", never "does the signed set
+     resemble the visible one", so a forwarded copy can carry an
+     attacker-authored `Cc: legal@, ceo@` that nothing questions.
+   - **V-2 MEDIUM** — the key-changed branch discards `toMe`/`notNamed`/`stale`,
+     and "Trust the new key" rewrites the chip to the flat pre-H2 wording.
+     Branches must compose, not shadow.
+   - **V-3 MEDIUM** — the replay tell is only a colour and a `title`, and
+     `title` does not render on touch at all. Put the signed date in the text.
+   - **V-4 MEDIUM** — the signed Message-ID is parsed, signed, then never read.
+     It is the one replay check needing no clock.
+   - **V-5 MEDIUM (cry-wolf)** — `ownAddresses()` is username + JMAP identities
+     only, so aliases, plus-addressing and list mail all get "not addressed to
+     you directly". High base rate.
+   - **V-6** — the `own = mine && !inInbox` choice is sound in intent but the
+     wrong shape: the attacker steers delivery out of the Inbox (spam to Junk,
+     or matching a sieve `fileinto`), and it is state-dependent, so the same
+     letter changes its story when filed. Use `!hasReceivedHeader(em)` instead
+     — monotonic, and she cannot deliver without generating one. Bounded to
+     self-spoofing, so low-medium.
+   - **V-7 / V-8 LOW-MEDIUM** — a signed From with no signed To/Cc degrades
+     open with an EMPTY tooltip, more confident than the legacy path; and
+     `stale` uses `Math.abs`, so a sender with a fast clock is shown the
+     replay warning.
+   - **V-9 — H2 AMPLIFIES the old V4.** A hostile directory previously bought
+     "signed by bob@bank.com"; post-H2 it buys the corroborated "signed by
+     bob@bank.com, **to you**", plus a pin. **Hold step 5's "authenticated
+     sender" copy until the old V4 closes.**
+
+   Confirmed clean: the depth-0 guard (no nested part reaches it), header
+   injection and smuggling, send-side truthfulness (protected and visible
+   copies provably cannot diverge), the legacy path (no existing legitimate
+   letter is newly accused, except through V-5/V-8), and all four argus fixes.
+   Untested by anything: `attributionOf` and the chip wording have no unit or
+   e2e coverage at all — the layer that turns a parse into a security claim.
 5. Product copy pass — anywhere the site or the pricing page claims an
    authenticated sender.
 
