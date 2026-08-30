@@ -14,6 +14,41 @@ mechanical brandings (storage prefix, backup-file wording) and records
 the upstream commit in `.saavi-core-ref`. **Never edit those files in
 the webmail** — change them here, then re-sync.
 
+## The UI is not shared — but drift is noticed now
+
+Layout cannot be vendored the way the core is. Saavi's `index.html` is a
+two-view desktop app; the webmail's is a whole mail client with the sealer as
+one pane inside it, and the handlers differ where it matters (the webmail asks
+its directory before WKD, signs as the signed-in account, unlocks through
+`openPgpModal`). Porting a UI change is hand work, and this file is the
+contract for it.
+
+Divergence is allowed — it just has to be **named**, not accidental. Declared
+app-specific, and deliberately NOT ported either way: Kaditham WKD publish,
+"Sign as", the file dropzone, the System GnuPG keyring switch, the directory
+lookup, the zero-access storage toggle.
+
+What is not allowed is drift nobody sees, which is what happened between 0.4.2
+and 0.4.3: Saavi refaced its sealer, the core lane carried the crypto across on
+schedule, and the webmail went on serving the old shape with a current core
+until someone happened to look at both.
+
+So the webmail's `scripts/auto-sync-core.sh` now also watches Saavi's
+`index.html`, `src/style.css`, `src/main.ts` and `src/ui.ts`:
+
+- `.saavi-ui-tag` records the Saavi release whose UI the webmail has been
+  brought level with **by hand** — not the release whose core it holds.
+- When a new release moves any of those files since that tag, the lane cannot
+  fix it, so it says so: a line in the cron log, a line appended to
+  `.saavi-ui-drift`, and — the part that actually gets read — a paragraph in
+  the sync commit message.
+- After porting, declare it level: `echo <tag> > .saavi-ui-tag`, in the same
+  commit as the port.
+
+The detector reports that Saavi's UI moved. It cannot tell whether the move
+mattered to the webmail; that judgement is the point of the feature matrix
+below.
+
 ## Feature matrix
 
 | Feature | Saavi | KGPG window | Notes |

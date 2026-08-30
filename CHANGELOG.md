@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **The window is no longer a third empty.** 0.4.3 opened at 1220×760 to fit
+  the two-pane sealer, and overshot: the content ends at about 520px, so the
+  bottom third was blank on first run. It now opens at 1220×560, which leaves
+  a margin under the file dropzone without cutting into it.
+
 ## 0.4.3 — 2026-08-30
 
 - **The window opens wide enough to hold both halves.** The default was
