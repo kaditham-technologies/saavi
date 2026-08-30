@@ -1,6 +1,7 @@
 # H2 — protected headers beyond the Subject
 
-Status: **core done** (2026-08-30), webmail open. Written 2026-08-30.
+Status: **built** (2026-08-30) — core, send and read. Awaiting the gate
+and an end-to-end test against real mailboxes. Written 2026-08-30.
 This is the truthfulness blocker on the "authenticated sender" claim, and it
 outranks [KEY-AGENT.md](KEY-AGENT.md) in the queue.
 
@@ -125,7 +126,12 @@ currently published for that address. What they falsify is the attribution of
 content, not the key binding. Gating the pin therefore buys little and costs
 continuity data that is independently valuable.
 
-**Recommendation:** gate the wording strictly; keep the pin. Record the
+**Decided as recommended (2026-08-30):** gate the wording strictly; keep the
+pin, except where the signed From disagrees with the envelope — there the
+attribution itself is in doubt, so the letter is not evidence about anyone's
+key.
+
+**Original reasoning:** gate the wording strictly; keep the pin. Record the
 decision either way. And note that the genuinely dangerous pinning case is a
 hostile directory serving a key it minted for an address it does not own —
 open item V4 — which protected headers do not address at all.
@@ -139,8 +145,17 @@ open item V4 — which protected headers do not address at all.
    Addresses only, lowercased and de-duplicated, display names discarded,
    because these values exist to be compared and never shown. Still to do:
    cut a release so the core sync lane carries it to the webmail.
-2. Webmail send-side sequencing.
-3. Webmail read-side attribution and wording.
+2. ~~Webmail send-side sequencing.~~ **DONE** (webmail `5ae98f3`). Date and
+   Message-ID are decided once, before the entity is built, and handed to both
+   halves along with one sender and one recipient list. Drafts deliberately
+   excluded: encrypted to self and unsigned, so protected headers there would
+   assert what no signature backs.
+3. ~~Webmail read-side attribution and wording.~~ **DONE** (webmail `e8073c5`).
+   The reader judges from the signed headers; "to you" comes from the signed
+   To/Cc; absent recipients are stated, never accused over (Bcc is
+   indistinguishable); a signed From disagreeing with the envelope warns and is
+   NOT pinned; a letter signed more than a day before delivery shows both
+   dates. Own sent mail is exempt from the recipient checks.
 4. **Gate:** argus and cerberus on 2 and 3 together.
 5. Product copy pass — anywhere the site or the pricing page claims an
    authenticated sender.
