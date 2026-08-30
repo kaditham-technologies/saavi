@@ -6,6 +6,19 @@ should get a CHANGELOG line.
 
 ## Security
 
+- [ ] **H2 — protected headers beyond the Subject.** From/To/Date/Message-ID
+      sit outside the signature, so surreptitious forwarding and replay can
+      make a letter read as "signed by X" to someone X never wrote to. The
+      truthfulness blocker on the authenticated-sender claim; outranks the key
+      agent. Plan: `docs/H2-PROTECTED-HEADERS.md`.
+- [ ] **Saavi as the key agent.** Keys out of browser storage and into a
+      keychain-sealed store Saavi owns, served to paired clients over a
+      loopback interface. Would be Saavi's first inbound surface — review it as
+      such. Plan: `docs/KEY-AGENT.md`.
+- [ ] **The update check runs once, at launch.** No timer and no re-check on
+      focus, so an app left open never learns a release exists (observed on
+      Linux, 0.4.2, the day 0.4.3 shipped). Give it the contract the webmail
+      already has: hourly, plus on window focus, sharing one in-flight latch.
 - [x] **Narrow the fs write scope.** Verified in `tauri-plugin-dialog`
       2.7.2 source (`commands.rs:251`): `save()` adds the chosen path to the
       fs scope itself. The static `$HOME/**` scope is gone; the webview can
