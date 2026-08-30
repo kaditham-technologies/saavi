@@ -1,7 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.4.4 — 2026-08-30
 
+- **Saavi notices a release while it is open.** The update check ran once, at
+  launch, and nowhere else — so an app left open for days never learned a newer
+  version existed. That is not a corner case; it is what happens to anyone who
+  keeps Saavi open, which is rather the point of a desktop app. It now also
+  checks hourly, and when the window comes back to the front. A tick and a
+  focus arriving together share one request, and the front-of-window check is
+  rate-limited so that switching windows does not poll the site. Turning the
+  setting off still turns all of it off.
+- **The headers a letter is judged by are now signed.** Until now the protected
+  header carried only the Subject, so From, To, Date and Message-ID travelled
+  outside the signature where anyone relaying a message could rewrite them. A
+  signed letter could therefore be lifted out of its envelope and re-delivered
+  under headers naming a different sender, recipient or day, and a reader had
+  no way to tell. Sealed letters now carry all five inside the signature. This
+  release is the groundwork: it changes what Saavi *sends*, and readers begin
+  using it in a later one — messages remain readable by every client either
+  way.
 - **The window is no longer a third empty.** 0.4.3 opened at 1220×760 to fit
   the two-pane sealer, and overshot: the content ends at about 520px, so the
   bottom third was blank on first run. It now opens at 1220×560, which leaves

@@ -144,7 +144,7 @@ const updatePill = $('update-pill') as HTMLButtonElement;
 const updateBanner = $('update-banner');
 const updateBannerText = $('update-banner-text');
 let offeredVersion: string | null = null;
-async function runUpdateCheck(force = false): Promise<void> {
+async function checkForUpdate(force: boolean): Promise<void> {
   if (!update.enabled()) return;
   const info = await update.check(__APP_VERSION__);
   if (!info) { if (force) status(`Saavi ${__APP_VERSION__} is the latest version.`); return; }
@@ -161,6 +161,36 @@ async function runUpdateCheck(force = false): Promise<void> {
   if (update.seen() !== info.version) { update.markSeen(info.version); status(`Saavi ${info.version} is available — see the download page.`); }
   void tryAutoUpdate(info);
 }
+
+/* The check used to run once, at launch, and nowhere else — so an app left
+ * open for days never learned that a release existed. That is not a corner
+ * case: it is what happens to anyone who keeps Saavi open, which is the point
+ * of a desktop app. (Seen on Linux, 0.4.2, the day 0.4.3 shipped.)
+ *
+ * So it now also runs hourly, and when the window comes back to the front —
+ * the contract the webmail has had for a while. Both share one in-flight
+ * promise, because a tick and a focus arriving together must not become two
+ * requests, and the front-of-window check is rate-limited so that alt-tabbing
+ * does not poll the site. A manual check ignores the rate limit but still
+ * joins a run already under way rather than starting a second. */
+const UPDATE_EVERY = 60 * 60 * 1000;
+const UPDATE_FOCUS_AFTER = 30 * 60 * 1000;
+let updateInFlight: Promise<void> | null = null;
+let lastUpdateCheck = 0;
+
+function runUpdateCheck(force = false): Promise<void> {
+  if (updateInFlight) return updateInFlight;
+  updateInFlight = checkForUpdate(force).finally(() => {
+    updateInFlight = null;
+    lastUpdateCheck = Date.now();
+  });
+  return updateInFlight;
+}
+
+setInterval(() => void runUpdateCheck(), UPDATE_EVERY);
+window.addEventListener('focus', () => {
+  if (Date.now() - lastUpdateCheck >= UPDATE_FOCUS_AFTER) void runUpdateCheck();
+});
 
 // One-click update: the package is downloaded up front and verified before
 // anything installs — the user still clicks. Two verified paths: the Tauri
