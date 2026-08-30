@@ -2,6 +2,11 @@
 
 **Saavi** (சாவி, Tamil for *key*) — friendly desktop OpenPGP.
 
+[![CI](https://github.com/kaditham-technologies/saavi/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kaditham-technologies/saavi/actions/workflows/ci.yml)
+[![Release](https://github.com/kaditham-technologies/saavi/actions/workflows/release.yml/badge.svg)](https://github.com/kaditham-technologies/saavi/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/kaditham-technologies/saavi?sort=semver)](https://github.com/kaditham-technologies/saavi/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A small, fast desktop app for OpenPGP keys and sealed text: generate,
 import, back up and manage keys in a keyring you can actually read, and
 encrypt/decrypt with them — to anyone whose key is discoverable over
