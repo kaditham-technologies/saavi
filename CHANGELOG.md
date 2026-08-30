@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.3 — 2026-08-30
 
 - **The window opens wide enough to hold both halves.** The default was
   860×640 — a two-pane sealer given one column's worth of room, so the
