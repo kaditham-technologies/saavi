@@ -81,6 +81,36 @@ describe.skipIf(!interop)('GnuPG interop', () => {
     expect(status).toMatch(/GOODSIG/);
   });
 
+  it('the protected headers survive a real gpg round trip (H2)', async () => {
+    // The point of H2 is that a reader can trust From/To/Date because they are
+    // inside the signature. That only holds if a real OpenPGP implementation
+    // carries them through untouched — so decrypt with gpg, not with us, and
+    // parse what gpg hands back.
+    const rec = await pgp.generateKeys(ME, 'Interop', PASS);
+    await pgp.unlockPrivateKey(ME, PASS);
+    gpg(['--passphrase', PASS, '--import'], { input: rec.privateKey });
+    const inner = mime.buildMimeEntity({
+      subject: 'interop subject',
+      from: { name: 'Ada L', email: 'ada@example.org' },
+      to: [{ email: 'bob@example.net' }, { name: 'Cee', email: 'cee@example.com' }],
+      cc: [{ email: 'dee@example.org' }],
+      date: new Date('2026-08-30T09:15:00Z'),
+      messageId: '<interop-h2@example.org>',
+      text: 'across implementations',
+    });
+    const armored = await pgp.encryptText(inner, [rec.publicKey], ME);
+    const plain = String(gpg(['--passphrase', PASS, '--decrypt'], { input: armored, encoding: 'utf8' }));
+    const parsed = mime.parseMimeEntity(norm(plain));
+    expect(parsed.from).toBe('ada@example.org');
+    expect(parsed.to).toEqual(['bob@example.net', 'cee@example.com']);
+    expect(parsed.cc).toEqual(['dee@example.org']);
+    expect(parsed.date?.toISOString()).toBe('2026-08-30T09:15:00.000Z');
+    expect(parsed.messageId).toBe('<interop-h2@example.org>');
+    expect(parsed.subject).toBe('interop subject');
+    // And nothing leaked a Bcc on the way through.
+    expect(plain.toLowerCase()).not.toContain('bcc:');
+  });
+
   it('gpg accepts our revocation certificate and marks the key revoked', async () => {
     const rec = await pgp.generateKeys(ME, 'Interop', PASS);
     writeFileSync(join(home, 'pub.asc'), rec.publicKey);

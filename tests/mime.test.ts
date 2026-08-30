@@ -240,6 +240,174 @@ describe('outgoing header safety (cerberus V6, argus #4)', () => {
   });
 });
 
+describe('protected headers beyond the Subject (H2)', () => {
+  const FULL = {
+    subject: 'Q3 figures',
+    from: { name: 'Ada L', email: 'ada@example.org' },
+    to: [{ email: 'bob@example.net' }, { name: 'Cee', email: 'cee@example.com' }],
+    cc: [{ email: 'dee@example.org' }],
+    date: new Date('2026-08-30T09:15:00Z'),
+    messageId: '<abc123@example.org>',
+    text: 'body',
+  };
+
+  it('round-trips From, To, Cc, Date and Message-ID', () => {
+    const out = mime.parseMimeEntity(mime.buildMimeEntity(FULL));
+    expect(out.from).toBe('ada@example.org');
+    expect(out.to).toEqual(['bob@example.net', 'cee@example.com']);
+    expect(out.cc).toEqual(['dee@example.org']);
+    expect(out.date?.toISOString()).toBe('2026-08-30T09:15:00.000Z');
+    expect(out.messageId).toBe('<abc123@example.org>');
+    expect(out.subject).toBe('Q3 figures');
+  });
+
+  it('carries them on the multipart/mixed top level when there are attachments', () => {
+    const raw = mime.buildMimeEntity({
+      ...FULL,
+      attachments: [{ name: 'a.txt', type: 'text/plain', bytes: new Uint8Array([65]) }],
+    });
+    const out = mime.parseMimeEntity(raw);
+    expect(out.from).toBe('ada@example.org');
+    expect(out.to).toEqual(['bob@example.net', 'cee@example.com']);
+    expect(out.attachments).toHaveLength(1);
+  });
+
+  it('absent is null, not empty — "does not say" and "said nobody" differ', () => {
+    const out = mime.parseMimeEntity(mime.buildMimeEntity({ subject: 's', text: 'b' }));
+    expect(out.from).toBeNull();
+    expect(out.to).toBeNull();
+    expect(out.cc).toBeNull();
+    expect(out.date).toBeNull();
+    expect(out.messageId).toBeNull();
+  });
+
+  it('a legacy Subject-only entity still parses, with the rest null', () => {
+    const legacy = [
+      'Content-Type: text/plain; charset=utf-8; protected-headers="v1"',
+      'Subject: from before H2',
+      '',
+      'body',
+      '',
+    ].join('\r\n');
+    const out = mime.parseMimeEntity(legacy);
+    expect(out.subject).toBe('from before H2');
+    expect(out.from).toBeNull();
+    expect(out.text).toBe('body');
+  });
+
+  it('lowercases and de-duplicates addresses', () => {
+    const out = mime.parseMimeEntity(mime.buildMimeEntity({
+      text: 'b',
+      to: [{ email: 'BOB@Example.NET' }, { email: 'bob@example.net' }, { email: 'z@example.org' }],
+    }));
+    expect(out.to).toEqual(['bob@example.net', 'z@example.org']);
+  });
+
+  it('a display name cannot smuggle an address into the list', () => {
+    // The name is quoted on the wire, and quoted strings are removed before
+    // the scan — otherwise "victim@bank.test" would read as a recipient.
+    const raw = mime.buildMimeEntity({
+      text: 'b',
+      to: [{ name: 'victim@bank.test, mallory', email: 'mallory@evil.test' }],
+    });
+    expect(mime.parseMimeEntity(raw).to).toEqual(['mallory@evil.test']);
+  });
+
+  it('Bcc is never emitted, and no Bcc header survives into the entity', () => {
+    const raw = mime.buildMimeEntity(FULL);
+    expect(raw.toLowerCase()).not.toContain('bcc:');
+  });
+
+  it('a From naming several addresses is treated as absent, not guessed at', () => {
+    const two = [
+      'Content-Type: text/plain; charset=utf-8; protected-headers="v1"',
+      'From: a@example.org, b@example.org',
+      '',
+      'body',
+      '',
+    ].join('\r\n');
+    expect(mime.parseMimeEntity(two).from).toBeNull();
+  });
+
+  it('refuses a header-breaking Message-ID rather than repairing it', () => {
+    const raw = mime.buildMimeEntity({ text: 'b', messageId: '<a b@example.org>' });
+    expect(raw).not.toContain('Message-ID');
+    expect(mime.parseMimeEntity(raw).messageId).toBeNull();
+  });
+
+  it('an unparseable Date reads as absent', () => {
+    const bad = [
+      'Content-Type: text/plain; charset=utf-8; protected-headers="v1"',
+      'Date: not a date at all',
+      '',
+      'body',
+      '',
+    ].join('\r\n');
+    expect(mime.parseMimeEntity(bad).date).toBeNull();
+  });
+
+  it('a CRLF-laced address never reaches the protected block', () => {
+    const raw = mime.buildMimeEntity({
+      text: 'b',
+      to: [{ email: 'ok@example.org' }, { email: 'x@e.org>\r\nBcc: leak@evil.test' }],
+    });
+    expect(raw).not.toContain('leak@evil.test');
+    expect(mime.parseMimeEntity(raw).to).toEqual(['ok@example.org']);
+  });
+
+  it('THE ATTACK: a nested part cannot supply From, To, Date or Message-ID', () => {
+    // Surreptitious forwarding works by controlling what the reader believes
+    // about the envelope. A nested part is attacker-addable, so nothing in one
+    // may ever be adopted — the same guard the Subject has always had.
+    const nested = [
+      'Content-Type: multipart/mixed; boundary="B"',
+      '',
+      '--B',
+      'Content-Type: text/plain; protected-headers="v1"',
+      'From: ada@example.org',
+      'To: victim@example.net',
+      'Date: Mon, 01 Jan 2026 00:00:00 +0000',
+      'Message-ID: <injected@evil.test>',
+      'Subject: injected',
+      '',
+      'body',
+      '--B--',
+      '',
+    ].join('\r\n');
+    const out = mime.parseMimeEntity(nested);
+    expect(out.from).toBeNull();
+    expect(out.to).toBeNull();
+    expect(out.date).toBeNull();
+    expect(out.messageId).toBeNull();
+    expect(out.subject).toBeNull();
+  });
+
+  it('a top-level part WITHOUT the v1 marker supplies nothing', () => {
+    const unmarked = [
+      'Content-Type: text/plain; charset=utf-8',
+      'From: ada@example.org',
+      'To: bob@example.net',
+      '',
+      'body',
+      '',
+    ].join('\r\n');
+    const out = mime.parseMimeEntity(unmarked);
+    expect(out.from).toBeNull();
+    expect(out.to).toBeNull();
+  });
+
+  it('survives the seal → unseal round trip intact', async () => {
+    const rec = await pgp.generateKeys(ME, 'Me', PASS);
+    await pgp.unlockPrivateKey(ME, PASS);
+    const armored = await pgp.encryptText(mime.buildMimeEntity(FULL), [rec.publicKey], ME);
+    const out = mime.parseMimeEntity((await pgp.decryptText(armored, rec.publicKey)).text);
+    expect(out.from).toBe('ada@example.org');
+    expect(out.to).toEqual(['bob@example.net', 'cee@example.com']);
+    expect(out.messageId).toBe('<abc123@example.org>');
+    expect(out.date?.toISOString()).toBe('2026-08-30T09:15:00.000Z');
+  });
+});
+
 describe('looksLikeMimeEntity', () => {
   it('accepts built entities, rejects legacy bare payloads', () => {
     expect(mime.looksLikeMimeEntity(mime.buildMimeEntity({ text: 'x' }))).toBe(true);

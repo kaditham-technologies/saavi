@@ -66,6 +66,7 @@ below.
 | Withdrawn recipient key holds the send | ✓ | ✓ | core (`pins.ts` `withdrawn`); never downgrades to plaintext |
 | Revoked/unusable recipient key refused | ✓ | needs sync | core (`pgp.ts` `keyState`), checked on every seal |
 | Named themes (Paper…Phosphor) | ✓ | ✓ | shared palette family, not shared code |
+| Protected headers: From/To/Cc/Date/Message-ID inside the signature (H2) | core ✓, app n/a | needs wiring | core (`mime.ts`); the webmail must pass the same values it puts outside, and attribute from the signed copies — see `docs/H2-PROTECTED-HEADERS.md` |
 | Paste-a-public-key recipient | ✓ | ✓ | armor normalized in core (single-line paste); pinned under its PRIMARY address only |
 | Kaditham directory + WKD publish | ✓ (mail-confirm link) | ✓ (automatic, bearer-authed at key creation) | service feature, not core; app proves ownership via `/signup/api/wkd/publish` confirmation mail |
 | Zero-access storage toggle | n/a | ✓ (Settings) | server feature |

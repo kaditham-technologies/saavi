@@ -1,6 +1,6 @@
 # H2 — protected headers beyond the Subject
 
-Status: **open**. Written 2026-08-30.
+Status: **core done** (2026-08-30), webmail open. Written 2026-08-30.
 This is the truthfulness blocker on the "authenticated sender" claim, and it
 outranks [KEY-AGENT.md](KEY-AGENT.md) in the queue.
 
@@ -132,8 +132,13 @@ open item V4 — which protected headers do not address at all.
 
 ## Order of work
 
-1. Saavi core plus tests. Cut a release; the core sync lane carries it to the
-   webmail automatically.
+1. ~~Saavi core plus tests.~~ **DONE 2026-08-30.** `buildMimeEntity` emits
+   From/To/Cc/Date/Message-ID; `MimeEntity` and `parseMimeEntity` read them
+   back under the same depth-0 `protected-headers="v1"` guard the Subject
+   has always had. 14 unit tests plus a GnuPG interop test — 108 green.
+   Addresses only, lowercased and de-duplicated, display names discarded,
+   because these values exist to be compared and never shown. Still to do:
+   cut a release so the core sync lane carries it to the webmail.
 2. Webmail send-side sequencing.
 3. Webmail read-side attribution and wording.
 4. **Gate:** argus and cerberus on 2 and 3 together.

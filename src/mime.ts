@@ -20,6 +20,20 @@ export interface MimeAttachment {
 
 export interface MimeEntity {
   subject: string | null;
+  /** Protected headers (H2). Present only when the top-level entity declared
+   *  protected-headers="v1" AND carried them; null means "this message does
+   *  not say", which a reader must treat as *cannot check* — never as forged,
+   *  since every message sent before H2 shipped is in that state.
+   *
+   *  Addresses only: display names are deliberately not parsed, because these
+   *  values exist to be COMPARED against the visible headers, never to be
+   *  shown. `null` (absent header) and `[]` (present but empty) are different
+   *  answers and callers must distinguish them. */
+  from: string | null;
+  to: string[] | null;
+  cc: string[] | null;
+  date: Date | null;
+  messageId: string | null;
   text: string | null;
   html: string | null;
   attachments: MimeAttachment[];
@@ -212,14 +226,53 @@ function multipart(sub: 'mixed' | 'alternative', parts: string[], extraHeaders: 
 /**
  * Build the inner MIME entity to encrypt. The subject rides INSIDE as a
  * protected header; the transport's visible subject should be "...".
+ *
+ * From/To/Cc/Date/Message-ID ride inside too, and for a different reason than
+ * the Subject. The Subject is protected to keep it PRIVATE. These are
+ * protected to make them TRUE: outside the signature they are attacker-
+ * writable, so a signed payload can be lifted out of its envelope and
+ * re-delivered under headers that name a different sender, recipient or day —
+ * and a reader with nothing but the visible headers cannot tell. Signing them
+ * is what lets a reader say "signed by X, to you, on this date" and mean it.
+ *
+ * The caller must pass the SAME values it will put on the outer message, and
+ * must therefore decide the Date and Message-ID before calling this — see
+ * buildEncryptedMessage, which will otherwise generate its own and leave the
+ * two copies disagreeing, which is indistinguishable from an attack.
  */
 export function buildMimeEntity(src: {
   subject?: string;
+  from?: MailAddress;
+  to?: MailAddress[];
+  cc?: MailAddress[];
+  date?: Date;
+  messageId?: string;
   text: string;
   html?: string | null;
   attachments?: MimeAttachment[];
 }): string {
-  const protectedHeaders = src.subject !== undefined ? [`Subject: ${src.subject.replace(/[\r\n]+/g, ' ')}`] : [];
+  // RFC 5322 order, so the block reads like the header it mirrors.
+  const protectedHeaders: string[] = [];
+  if (src.from) {
+    const f = addrList([src.from]);
+    if (f) protectedHeaders.push(foldHeader('From', f, ', '));
+  }
+  if (src.to?.length) {
+    const t = addrList(src.to);
+    if (t) protectedHeaders.push(foldHeader('To', t, ', '));
+  }
+  if (src.cc?.length) {
+    const c = addrList(src.cc);
+    if (c) protectedHeaders.push(foldHeader('Cc', c, ', '));
+  }
+  // Bcc is never emitted, here or outside: the submission envelope carries
+  // those recipients and no header ever does.
+  if (src.date) protectedHeaders.push(`Date: ${rfc5322Date(src.date)}`);
+  if (src.messageId) {
+    const id = safeMsgId(src.messageId);
+    if (id) protectedHeaders.push(`Message-ID: ${id}`);
+  }
+  if (src.subject !== undefined) protectedHeaders.push(`Subject: ${src.subject.replace(/[\r\n]+/g, ' ')}`);
   const bodyEntity = src.html
     ? multipart('alternative', [textPart('text/plain', src.text), textPart('text/html', src.html)])
     : textPart('text/plain', src.text);
@@ -227,7 +280,7 @@ export function buildMimeEntity(src: {
     return multipart('mixed', [bodyEntity, ...src.attachments.map(attachmentPart)], protectedHeaders);
   }
   if (!protectedHeaders.length) return bodyEntity;
-  // A single body part still needs the protected Subject on its own headers.
+  // A single body part still needs the protected headers on its own headers.
   const { headers, body } = splitEntity(bodyEntity);
   const ct = headers['content-type'] ?? 'text/plain; charset=utf-8';
   const rebuilt = [
@@ -278,13 +331,30 @@ function walk(raw: string, out: MimeEntity, depth: number, st: WalkState): void 
   st.parts++;
   const { headers, body } = splitEntity(raw);
   const ct = parseParams(headers['content-type'] ?? 'text/plain; charset=us-ascii');
-  // A protected Subject is only trustworthy on the TOP-LEVEL entity that
+  // A protected header is only trustworthy on the TOP-LEVEL entity that
   // actually declares protected-headers="v1" (the LAMPS convention) — never
-  // adopted from an arbitrary nested part an attacker can add.
-  if (depth === 0 && out.subject === null
-      && ct.params['protected-headers'] === 'v1'
-      && headers['subject'] !== undefined) {
-    out.subject = sanitizeText(decodeWords(headers['subject']));
+  // adopted from an arbitrary nested part an attacker can add. Every field
+  // below shares that guard; relaxing it for any one of them would hand an
+  // attacker the ability to choose what the reader believes.
+  if (depth === 0 && ct.params['protected-headers'] === 'v1') {
+    if (out.subject === null && headers['subject'] !== undefined) {
+      out.subject = sanitizeText(decodeWords(headers['subject']));
+    }
+    if (out.from === null && headers['from'] !== undefined) {
+      // One sender or none: a From naming several addresses is not something
+      // to reason about, so it is treated as absent.
+      const f = addrSpecs(headers['from']);
+      if (f.length === 1) out.from = f[0];
+    }
+    if (out.to === null && headers['to'] !== undefined) out.to = addrSpecs(headers['to']);
+    if (out.cc === null && headers['cc'] !== undefined) out.cc = addrSpecs(headers['cc']);
+    if (out.date === null && headers['date'] !== undefined) {
+      const d = new Date(headers['date']);
+      if (!Number.isNaN(d.getTime())) out.date = d;
+    }
+    if (out.messageId === null && headers['message-id'] !== undefined) {
+      out.messageId = safeMsgId(headers['message-id']);
+    }
   }
   if (ct.value.startsWith('multipart/')) {
     const b = ct.params['boundary'];
@@ -324,9 +394,13 @@ function walk(raw: string, out: MimeEntity, depth: number, st: WalkState): void 
   }
 }
 
-/** Parse a decrypted inner entity back into subject / text / html / files. */
+/** Parse a decrypted inner entity back into its protected headers, text,
+ *  html and files. */
 export function parseMimeEntity(raw: string): MimeEntity {
-  const out: MimeEntity = { subject: null, text: null, html: null, attachments: [] };
+  const out: MimeEntity = {
+    subject: null, from: null, to: null, cc: null, date: null, messageId: null,
+    text: null, html: null, attachments: [],
+  };
   if (raw.length > MAX_ENTITY_BYTES) return out;   // refuse a decompression bomb
   walk(raw, out, 0, { parts: 0 });
   return out;
@@ -339,6 +413,28 @@ export interface MailAddress { name?: string | null; email: string }
 /** RFC 2047 B-encode a header word when it isn't plain ASCII. */
 function headerWord(src: string): string {
   return /^[\x20-\x7e]*$/.test(src) ? src : `=?utf-8?B?${b64encode(new TextEncoder().encode(src))}?=`;
+}
+
+/** The addr-specs in a header value, lowercased and de-duplicated, display
+ *  names discarded. Used ONLY to compare protected headers against visible
+ *  ones, so it errs strict: quoted display names are removed before the scan
+ *  (an attacker must not smuggle an address into one), each comma-separated
+ *  item yields at most one address, an angle-bracketed form wins over a bare
+ *  one, and anything safeEmail refuses is dropped rather than repaired. */
+function addrSpecs(header: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const stripped = header.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  for (const item of stripped.split(',')) {
+    const m = /<([^<>]*)>/.exec(item);
+    const e = safeEmail((m ? m[1] : item).trim());
+    if (!e) continue;
+    const low = e.toLowerCase();
+    if (seen.has(low)) continue;
+    seen.add(low);
+    out.push(low);
+  }
+  return out;
 }
 
 /** A syntactically safe addr-spec, or null. The address is emitted RAW into
