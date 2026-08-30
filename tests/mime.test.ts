@@ -261,6 +261,27 @@ describe('protected headers beyond the Subject (H2)', () => {
     expect(out.subject).toBe('Q3 figures');
   });
 
+  it('survives folding: a long recipient list round-trips every address', () => {
+    // foldHeader used to close a line without its separator, so unfolding
+    // merged two addresses into one token and BOTH were dropped. Every
+    // recipient then read the letter as "not addressed to you".
+    const many = Array.from({ length: 12 }, (_, i) => ({ email: `recipient${i + 1}@example-domain.com` }));
+    const out = mime.parseMimeEntity(mime.buildMimeEntity({ ...FULL, to: many, cc: [] }));
+    expect(out.to).toEqual(many.map((m) => m.email));
+  });
+
+  it('survives folding: addresses long enough that every one lands on its own line', () => {
+    const long = [1, 2, 3].map((i) => ({ email: `averylongrecipientname${i}@some-quite-long-domain.example.com` }));
+    const out = mime.parseMimeEntity(mime.buildMimeEntity({ ...FULL, to: long, cc: [] }));
+    expect(out.to).toEqual(long.map((m) => m.email));
+  });
+
+  it('folded protected headers stay within the RFC 5322 line limit', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ email: `recipient${i + 1}@example-domain.com` }));
+    const raw = mime.buildMimeEntity({ ...FULL, to: many, cc: [] });
+    for (const line of raw.split(/\r?\n/)) expect(line.length).toBeLessThanOrEqual(998);
+  });
+
   it('carries them on the multipart/mixed top level when there are attachments', () => {
     const raw = mime.buildMimeEntity({
       ...FULL,

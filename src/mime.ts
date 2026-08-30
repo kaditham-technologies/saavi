@@ -473,7 +473,10 @@ function foldHeader(name: string, value: string, sep: string): string {
   for (const item of items) {
     const piece = (cur.endsWith(':') ? ' ' : sep) + item;
     if (cur.length + piece.length > 76 && !cur.endsWith(':')) {
-      lines.push(cur);
+      // The separator belongs to the line being closed: unfolding rejoins with
+      // a single space, so a bare push loses it and merges two addresses into
+      // one unparseable token. (' ' folding trims to nothing, as it should.)
+      lines.push(cur + sep.trimEnd());
       cur = ' ' + item;
     } else {
       cur += piece;
