@@ -260,11 +260,19 @@ body.src-system .dot-open { background: var(--accent); box-shadow: 0 0 6px color
 .seal-grid {
   max-width: 1180px; width: 100%; margin: 0 auto; padding: 20px;
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 18px; align-items: start; overflow-y: auto;
+  gap: 18px; overflow-y: auto;
 }
 .seal-pane { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .seal-grid > #files { grid-column: 1 / -1; }
-.fld-grow textarea { min-height: 15em; }
+/* The input is somewhere to paste; the result is somewhere to read — an
+   armored block runs fifteen lines before it says anything. So the two boxes
+   are deliberately not the same height. */
+.fld-grow textarea { min-height: 11em; }
+#seal-out { min-height: 23em; }
+/* The result fills its pane down to the bottom of the work beside it: empty
+   space under a sealed block was the whole complaint. */
+.seal-result #seal-out-fld, .seal-result .result-empty { flex: 1 1 auto; }
+#seal-out { flex: 1 1 auto; max-height: none; }
 .result-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   font-size: 12.5px; font-weight: 600; color: var(--ink); min-height: 24px;
@@ -273,16 +281,78 @@ body.src-system .dot-open { background: var(--accent); box-shadow: 0 0 6px color
 .result-empty {
   font-size: 12.5px; color: var(--ink-3); margin: 0;
   display: flex; align-items: center; justify-content: center; text-align: center;
-  min-height: 15em; padding: 16px 22px;
+  min-height: 23em; padding: 16px 22px;
   border: 1px dashed var(--border); border-radius: 8px;
 }
 #seal-out-fld:not([hidden]) ~ .result-empty { display: none; }
 .acts-gap { flex: 0 0 10px; }
+/* The addresses you can already seal to are sitting in the store — offer them
+   rather than making someone remember and retype one. Typing an unknown
+   address still works; this only removes the need to. */
+/* Address or a whole pasted key are different shapes of answer; a one-line
+   input was the wrong container for the second, and hid the first's list. */
+.fld-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.seg-mini { padding: 2px; gap: 2px; border-radius: 7px; }
+.seg-mini button { flex: 0 0 auto; white-space: nowrap; font-size: 11.5px; font-weight: 600; padding: 4px 9px; border-radius: 5px; }
+.fld textarea.key-paste { min-height: 7em; max-height: 40vh; }
+.pick-row { position: relative; display: flex; }
+.pick-row input { flex: 1; min-width: 0; }
+#seal-to { padding-right: 34px; }
+.pick-btn {
+  position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; border-radius: 6px;
+  border: 1px solid transparent; background: none; color: var(--ink-3); cursor: pointer;
+  transition: color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
+}
+.pick-btn svg { width: 15px; height: 15px; display: block; }
+.pick-btn:hover, .pick-btn[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); }
+.pick-menu {
+  position: absolute; z-index: 20; top: calc(100% + 5px); left: 0; right: 0;
+  max-height: 16em; overflow-y: auto; padding: 5px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--card);
+  box-shadow: 0 12px 30px rgba(23, 22, 29, 0.16);
+}
+.pick-head {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--ink-3); padding: 7px 8px 4px;
+}
+.pick-item {
+  display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left;
+  font: inherit; font-size: 12.5px; font-weight: 500; color: var(--ink);
+  padding: 7px 8px; border: 0; border-radius: 6px; background: none; cursor: pointer;
+}
+.pick-item:hover, .pick-item.on { background: var(--accent-soft); color: var(--accent); outline: none; }
+.pick-item .pick-id { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.pick-item:hover .pick-id, .pick-item.on .pick-id { color: inherit; }
+.pick-item.picked { color: var(--ink-3); }
+.pick-empty { font-size: 12.5px; color: var(--ink-3); padding: 9px 8px; line-height: 1.45; }
+/* Copy sits on the thing being copied — a chat-style glyph in the corner of
+   the block — rather than in a header strip the eye has already left. */
+.result-box { position: relative; }
+.box-copy {
+  position: absolute; top: 7px; right: 9px;
+  display: inline-flex; align-items: center; gap: 5px;
+  font: inherit; font-size: 11.5px; font-weight: 600; line-height: 1;
+  padding: 5px 7px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--card); color: var(--ink-3);
+  cursor: pointer; opacity: 0.72;
+  transition: opacity 0.15s var(--ease-out), color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+}
+.result-box:hover .box-copy, .box-copy:focus-visible { opacity: 1; }
+.box-copy:hover { color: var(--accent); border-color: var(--accent); }
+.box-copy svg { width: 14px; height: 14px; display: block; }
+.box-copy .ic-done, .box-copy .box-copy-txt { display: none; }
+.box-copy.done { opacity: 1; color: var(--accent); border-color: var(--accent); }
+.box-copy.done .ic-copy { display: none; }
+.box-copy.done .ic-done { display: block; }
+.box-copy.done .box-copy-txt { display: inline; }
 @media (max-width: 900px) {
   .seal-grid { grid-template-columns: 1fr; }
   /* Stacked, a tall input pushes the result off the bottom — the exact
      thing the two-pane layout exists to prevent. */
-  .seal-pane textarea { height: 8em; min-height: 8em; }
+  .seal-pane textarea, #seal-out { height: 8em; min-height: 8em; }
+  #seal-out { height: 11em; min-height: 11em; }
   .result-empty { min-height: 5em; }
 }
 .fld { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--ink); }

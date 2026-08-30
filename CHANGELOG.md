@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+- **The window opens wide enough to hold both halves.** The default was
+  860×640 — a two-pane sealer given one column's worth of room, so the
+  result you had just produced was a stub beside a writing box nobody asked
+  to be that tall. Saavi now opens at 1220×760, the writing box is shorter,
+  and the result runs the full height of the work beside it. Every one of
+  those was something people were dragging by hand on first run.
+- **Copy sits on the block being copied.** The button lived at the head of
+  the result pane, which is where the eye leaves as soon as it starts
+  reading. It is now a glyph in the corner of the block itself — the way a
+  code block behaves in a chat — and it says *Copied* where it stands,
+  because a clipboard write is otherwise completely silent. A refused
+  clipboard selects the text and says *Selected* instead.
+- **The To field offers the people you already hold a key for.** Every
+  address Saavi can seal to without a lookup is already in the store: the
+  keys in your GnuPG ring, or the keys remembered from earlier seals plus
+  your own addresses. They were being retyped from memory. A chevron in the
+  field now lists them, grouped, with the last eight of each fingerprint,
+  and marks the ones already in the To line. Typing an unknown address still
+  works exactly as before — this only removes the need to when it is known.
+- **An address and a pasted public key are no longer the same box.** A whole
+  armored key had to go into a one-line input, where it was unreadable and
+  unfixable. To is now two modes: *Address*, with the picker, and *Public
+  key*, which is a proper paste area.
+- **A quarantined key record stopped posing as an address.** A record that
+  failed to parse is preserved under `saavi-ring-corrupt-<address>-<stamp>`,
+  and the scan that lists your addresses accepted it because it still
+  contains an `@`. It appeared in the Sign-as list, and would have appeared
+  in the new recipient picker.
+
 ## 0.4.2 — 2026-08-29
 
 - **The sealer shows you the result instead of hiding it.** Sealed and

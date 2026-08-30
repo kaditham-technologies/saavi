@@ -20,6 +20,11 @@ the webmail** — change them here, then re-sync.
 |---|---|---|---|
 | Key table (−k): generate/import/backup/delete, rings per address | ✓ | ✓ | shared core |
 | Sealer (−d): encrypt/decrypt text | ✓ | ✓ | shared core |
+| Two-pane sealer: the work left, the result right | ✓ | ✓ | layout only; auto-fit collapses to one column in a narrow window |
+| Copy glyph on the result block, confirming in place | ✓ | ✓ | a clipboard write is otherwise silent |
+| Recipient picker: addresses you already hold a key for | ✓ (GnuPG ring, or pins + own addresses) | ✓ (pins + own addresses) | typing an unknown address still works |
+| Address ↔ pasted-key input modes | ✓ | ✓ | a one-line input was the wrong container for an armored block |
+| Clearsign / verify (Sign, Verify buttons) | ✓ | ✓ | core (`pgp.ts` `signText`/`verifyText`); webmail signs as the signed-in address, Saavi picks under Sign as |
 | WKD recipient lookup | ✓ | ✓ | webmail: directory first, WKD fallback |
 | Suggested passphrase (6 EFF words) + strength read | ✓ | ✓ | core (`passphrase.ts`, `wordlist.ts`); shown in clear, "Use my own" opts out |
 | Recipient key pinning (TOFU) | ✓ (device scope) | ✓ (per signed-in account) | core (`pins.ts`); policy shared, prompts are per-app |

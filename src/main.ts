@@ -55,7 +55,10 @@ function ringAddresses(): string[] {
     const a = k.slice('saavi-ring-'.length);
     // The alerts list and quarantined records share this prefix. Treating
     // them as addresses makes every read re-quarantine them, so an address
-    // is required to look like one.
+    // is required to look like one — and a quarantine key CARRIES the
+    // address it was made from (`corrupt-<email>-<ts>`), so looking like one
+    // is not enough on its own.
+    if (a.startsWith('corrupt-')) continue;
     if (a.includes('@')) out.push(a);
   }
   return out.sort();
@@ -313,6 +316,11 @@ $('tab-seal').addEventListener('click', () => selectTab('seal'));
 // ---------- keyring source ----------
 type Source = 'saavi' | 'system';
 let source: Source = 'saavi';
+/* A recipient is given either as an address to look up or as a whole pasted
+ * public key. Those are different shapes of answer, and a one-line input was
+ * the wrong container for the second. */
+type ToMode = 'addr' | 'key';
+let toMode: ToMode = 'addr';
 let gpgInfo: gpg.GpgInfo | null = null;
 let systemKeys: gpg.SystemKey[] = [];
 
@@ -322,13 +330,38 @@ function setSource(s: Source): void {
   ($('ring-src') as HTMLSelectElement).value = s;
   document.body.classList.toggle('src-system', s === 'system');
   $('col-status').textContent = s === 'system' ? 'Trust' : 'Status';
-  $('seal-to-label').textContent = s === 'system'
-    ? 'To (addresses or fingerprints in your GnuPG keyring — WKD for unknown addresses — or paste a public key)'
-    : 'To (addresses — found via WKD or keys.openpgp.org — or paste a public key)';
+  $('seal-to-label').textContent = toLabel();
   $('files').hidden = !gpg.inShell();
   sel = null;
   void refreshKeys();
 }
+
+function toLabel(): string {
+  if (toMode === 'key') return 'To (their public key — paste the whole block)';
+  return source === 'system'
+    ? 'To (addresses or fingerprints in your GnuPG keyring — WKD for unknown addresses)'
+    : 'To (addresses — found via WKD or keys.openpgp.org)';
+}
+
+function setToMode(m: ToMode): void {
+  toMode = m;
+  for (const b of $('seal-to-mode').querySelectorAll<HTMLButtonElement>('button')) {
+    const on = b.dataset.to === m;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+  ($('seal-to').parentElement as HTMLElement).hidden = m !== 'addr';
+  $('seal-to-key').hidden = m !== 'key';
+  $('seal-to-label').textContent = toLabel();
+  $('seal-to-label').setAttribute('for', m === 'key' ? 'seal-to-key' : 'seal-to');
+  closeToMenu();
+  (m === 'key' ? $('seal-to-key') : $('seal-to')).focus();
+}
+
+$('seal-to-mode').addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-to]');
+  if (b?.dataset.to) setToMode(b.dataset.to as ToMode);
+});
 
 async function detectGpg(): Promise<void> {
   const note = $('ring-note');
@@ -380,6 +413,9 @@ function syncTools(): void {
     sel?.kind === 'system' && sel.hasSecret
       ? 'Saavi does not delete secret keys from the GnuPG keyring — use gpg or Kleopatra.'
       : sel?.kind === 'saavi' && sel.isActive ? 'The active key cannot be deleted; rotate first.' : '';
+  // A chevron that opens an empty list is worse than no chevron.
+  $('seal-to-pick').hidden = !knownRecipients().length;
+  if ($('seal-to-pick').hidden) closeToMenu();
 }
 
 function rowFor(cells: { dot: boolean; dotTitle: string; addr: string; id: string; date: string; chip: string; chipOn: boolean; title: string; dead?: boolean }): HTMLElement {
@@ -1076,6 +1112,7 @@ $('modal-form').addEventListener('submit', async (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    if (!$('seal-to-menu').hidden) { closeToMenu(); $('seal-to-pick').focus(); return; }
     if (!$('details').hidden) { $('details').hidden = true; return; }
     if (!$('modal').hidden) return closeModal();
   }
@@ -1095,7 +1132,7 @@ function sealShow(label: string, text: string, sigs?: gpg.SignatureInfo[] | null
   $('seal-out-label').textContent = label;
   ($('seal-out') as HTMLTextAreaElement).value = text;
   $('seal-out-fld').hidden = false;
-  $('seal-copy').hidden = false;
+  copyDone(false);
   // On a wide window the result is already beside the input. On a narrow one
   // the panes stack, and a letter you just unsealed would otherwise appear
   // below the fold — the reader has to know it worked without hunting.
@@ -1110,8 +1147,123 @@ function sealShow(label: string, text: string, sigs?: gpg.SignatureInfo[] | null
     sig.append(el('span', `sig sig-${cls}`, gpg.describeSignature(s)));
   }
 }
-const recipientsRaw = (): string => ($('seal-to') as HTMLInputElement).value.trim();
+const recipientsRaw = (): string =>
+  (toMode === 'key'
+    ? ($('seal-to-key') as HTMLTextAreaElement).value
+    : ($('seal-to') as HTMLInputElement).value).trim();
 const signAs = (): string => ($('seal-sign') as HTMLSelectElement).value;
+
+/* ---------- who you can already seal to ----------
+ * The addresses this device holds a key for are sitting in the store; making
+ * someone retype one from memory is the app forgetting on their behalf. In
+ * the GnuPG ring that is every key that can encrypt; in the Saavi store it is
+ * the addresses pinned from earlier seals, plus your own. Typing an unknown
+ * address still works — this only removes the need to when it is known. */
+interface Known { value: string; label: string; id: string; group: string }
+
+function knownRecipients(): Known[] {
+  if (source === 'system') {
+    return systemKeys
+      .filter((k) => k.can_encrypt && !dead(k) && (k.uids[0]?.email || k.fingerprint))
+      // Other people first: sealing to yourself is the rarer errand.
+      .sort((a, b) => Number(a.has_secret) - Number(b.has_secret) || keyLabel(a).localeCompare(keyLabel(b)))
+      .map((k) => ({
+        value: k.uids[0]?.email || k.fingerprint,
+        label: keyLabel(k),
+        id: '…' + k.fingerprint.slice(-8),
+        group: k.has_secret ? 'Your own keys' : 'In your GnuPG keyring',
+      }));
+  }
+  const theirs: Known[] = pins.all(PIN_OWNER).filter((p) => !p.revokedAt).map((p) => ({
+    value: p.address,
+    label: p.address,
+    id: '…' + p.fingerprint.replace(/\s+/g, '').slice(-8).toUpperCase(),
+    group: 'Keys you have remembered',
+  }));
+  const mine: Known[] = ringAddresses().sort().map((a) => ({
+    value: a, label: a, id: '', group: 'Your own addresses',
+  }));
+  const seen = new Set<string>();
+  return [...theirs, ...mine].filter((k) => {
+    const v = k.value.toLowerCase();
+    if (seen.has(v)) return false;
+    seen.add(v);
+    return true;
+  });
+}
+
+/** The To field is a comma list; what is already in it should not be offered
+ *  again as if it were missing. */
+const recipientsListed = (): string[] =>
+  recipientsRaw().split(/[,\n;]+/).map((r) => r.trim().toLowerCase()).filter(Boolean);
+
+function addRecipient(value: string): void {
+  if (toMode !== 'addr') setToMode('addr');
+  const inp = $('seal-to') as HTMLInputElement;
+  if (!recipientsListed().includes(value.trim().toLowerCase())) {
+    const raw = inp.value.replace(/[,\s]+$/, '');
+    inp.value = raw ? `${raw}, ${value}` : value;
+  }
+  inp.focus();
+}
+
+function closeToMenu(): void {
+  $('seal-to-menu').hidden = true;
+  $('seal-to-pick').setAttribute('aria-expanded', 'false');
+}
+
+function openToMenu(): void {
+  const menu = $('seal-to-menu');
+  const known = knownRecipients();
+  const have = new Set(recipientsListed());
+  menu.replaceChildren();
+  if (!known.length) {
+    menu.append(el('p', 'pick-empty', 'No keys held yet. Seal to an address once and its key is remembered here.'));
+  }
+  let group = '';
+  for (const k of known) {
+    if (k.group !== group) { group = k.group; menu.append(el('div', 'pick-head', group)); }
+    const picked = have.has(k.value.toLowerCase());
+    const item = el('button', 'pick-item' + (picked ? ' picked' : ''));
+    item.setAttribute('type', 'button');
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', String(picked));
+    item.append(el('span', undefined, k.label));
+    if (k.id) item.append(el('span', 'pick-id', k.id));
+    item.addEventListener('click', () => { addRecipient(k.value); closeToMenu(); });
+    menu.append(item);
+  }
+  menu.hidden = false;
+  $('seal-to-pick').setAttribute('aria-expanded', 'true');
+}
+
+$('seal-to-pick').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if ($('seal-to-menu').hidden) openToMenu(); else closeToMenu();
+});
+
+// Arrow keys walk the list; the field keeps the caret, so opening the menu
+// never costs the typist their place.
+$('seal-to-menu').addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  e.preventDefault();
+  const items = [...$('seal-to-menu').querySelectorAll<HTMLElement>('.pick-item')];
+  if (!items.length) return;
+  const at = items.indexOf(document.activeElement as HTMLElement);
+  const next = e.key === 'ArrowDown' ? (at + 1) % items.length : (at <= 0 ? items.length : at) - 1;
+  items[next]?.focus();
+});
+$('seal-to-pick').addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowDown') return;
+  e.preventDefault();
+  if ($('seal-to-menu').hidden) openToMenu();
+  $('seal-to-menu').querySelector<HTMLElement>('.pick-item')?.focus();
+});
+
+document.addEventListener('click', (e) => {
+  const menu = $('seal-to-menu');
+  if (!menu.hidden && !menu.contains(e.target as Node)) closeToMenu();
+});
 
 /** Every fingerprint on this device's rings (active AND retired), raw hex.
  *  THE own-key test: trust badges compare fingerprints, never UID strings —
@@ -1514,8 +1666,31 @@ $('seal-dec').addEventListener('click', async () => {
   await attempt();
 });
 
-$('seal-copy').addEventListener('click', () => {
-  void navigator.clipboard.writeText(($('seal-out') as HTMLTextAreaElement).value);
+/* A clipboard write is silent, and the glyph sits on the block rather than in
+ * a header — so it has to answer in place, and go back to offering. */
+let copyTimer: ReturnType<typeof setTimeout> | undefined;
+function copyDone(done: boolean, word = 'Copied'): void {
+  const b = $('seal-copy');
+  clearTimeout(copyTimer);
+  const txt = b.querySelector('.box-copy-txt');
+  if (txt) txt.textContent = word;
+  b.classList.toggle('done', done);
+  b.setAttribute('aria-label', done ? word : 'Copy');
+  b.title = done ? word : 'Copy';
+  if (done) copyTimer = setTimeout(() => copyDone(false), 1600);
+}
+
+$('seal-copy').addEventListener('click', async () => {
+  const out = $('seal-out') as HTMLTextAreaElement;
+  try {
+    await navigator.clipboard.writeText(out.value);
+    copyDone(true);
+  } catch {
+    // Refused clipboards are a fact of webviews: leave it selected instead.
+    out.focus();
+    out.select();
+    copyDone(true, 'Selected');
+  }
 });
 
 // ---------- files (shell only) ----------
@@ -1543,6 +1718,7 @@ async function askRecipients(forWhat: string): Promise<string | null> {
   const r = await ask({ title: 'Seal — to whom?', message: forWhat,
     fields: [{ name: 'to', label: source === 'system' ? 'Addresses or fingerprints' : 'Addresses', placeholder: 'ada@example.org, grace@proton.me' }], ok: 'Seal' });
   if (!r?.to.trim()) return null;
+  setToMode('addr');
   ($('seal-to') as HTMLInputElement).value = r.to.trim();
   return r.to.trim();
 }
