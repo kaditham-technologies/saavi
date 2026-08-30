@@ -155,8 +155,38 @@ open item V4 — which protected headers do not address at all.
    To/Cc; absent recipients are stated, never accused over (Bcc is
    indistinguishable); a signed From disagreeing with the envelope warns and is
    NOT pinned; a letter signed more than a day before delivery shows both
-   dates. Own sent mail is exempt from the recipient checks.
-4. **Gate:** argus and cerberus on 2 and 3 together.
+   dates. Your own mail is exempt from the recipient checks.
+
+   Refined after the argus review (webmail `2bc77ef`), and these are the rules
+   as built:
+
+   - **"Your own" means a copy that was not delivered to you**, not merely one
+     whose signed From is yours. The signed From alone was a hole: an attacker
+     cannot re-sign the letter, but she can re-encrypt the still-signed entity
+     to your published key and post it back, and a signed From of yours would
+     then switch the recipient check off. Keying on the Sent folder instead
+     would cry wolf as soon as you archived something you had written, so the
+     test is "not in the Inbox" — Sent and anything you filed stay exempt.
+   - **`null` and `[]` are different answers and the reader keeps them apart.**
+     `null` is "does not say" (every pre-H2 letter); `[]` is "said so and named
+     nobody" — `To: undisclosed-recipients:;`, or group syntax whose members
+     `addrSpecs` refuses. Neither is evidence of forwarding. Only an actual
+     name puts the reader on notice.
+   - **The From mismatch is tested before the key-change branch.** In an
+     `else if` after it, a letter that was both signed-as-someone-else AND
+     from a changed key showed only "key CHANGED" — and "Trust the new key"
+     then pinned it, which this document forbids. It is the stronger signal,
+     so it is checked first, and it still pins nothing.
+   - **The chip says "not addressed to you *directly*".** One ciphertext
+     serves every recipient, so per-recipient protected headers do not exist
+     and a blind-copied reader is legitimately absent from the signed To/Cc.
+     The chip is what gets read at a glance; the tooltip carries the rest.
+4. **Gate:** argus and cerberus on 2 and 3 together. **argus DONE
+   2026-08-30** — four findings, all closed: a `foldHeader` bug that dropped
+   the separator when folding a long header (saavi `5c68f16`, so twelve
+   recipients parsed back as two and the reader accused legitimate ones), plus
+   the three attribution refinements recorded under 3. **cerberus still
+   outstanding.**
 5. Product copy pass — anywhere the site or the pricing page claims an
    authenticated sender.
 
