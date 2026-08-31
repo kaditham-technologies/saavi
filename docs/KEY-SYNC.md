@@ -4,6 +4,14 @@ Status: **planned**, not started. Written 2026-08-30.
 Supersedes the one-line sketch of P4 in the E2EE readiness plan.
 Blocks: 0.5.0's on-disk format. Related: [KEY-AGENT.md](KEY-AGENT.md).
 
+Sibling, shipped 2026-08-31: the **webmail keychain** (the webmail repo's
+`docs/KEYCHAIN.md`) — the webmail lane's v1 of this idea, a passphrase-locked
+ring blob behind the account broker. It satisfies this document's underlying
+test (enrolment needs a secret the server has never seen: the passphrase) but
+not its stricter rule (the account credential does obtain the ciphertext), and
+a browser tab cannot do the OS-sealed device keys below. When this design
+ships, the broker blob becomes one of its envelopes, not the whole story.
+
 One identity, present on every device the customer uses, each device sealing
 its copy with its own operating system. Not one keychain — a keychain is
 device-local by definition, and there is no single Saavi that a phone and a
