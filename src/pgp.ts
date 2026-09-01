@@ -85,6 +85,17 @@ export function clearSession(): void {
   activeByEmail.clear();
 }
 
+/** Drop one address's unlocked key from the session — the keychain-restore
+ *  rollback path, where a ring being uninstalled must not stay open in
+ *  memory (2nd argus pass, webmail keychain). Touches nothing on disk. */
+export function relockRing(email: string): void {
+  const fpr = activeByEmail.get(email.toLowerCase());
+  if (fpr === undefined) return;
+  sessionKeys.delete(fpr);
+  activeByEmail.delete(email.toLowerCase());
+  if (activeSessionFpr === fpr) activeSessionFpr = null;
+}
+
 /** Corruption alarms — a damaged store record must never just vanish. */
 export interface StoreAlert { email: string; at: string; quarantineKey: string }
 
