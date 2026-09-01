@@ -94,6 +94,34 @@ stated in the checkbox itself. Nothing is remembered unless ticked; the
 entry can be removed from Details → "Forget in keychain". The system
 GnuPG keyring is unaffected: gpg-agent owns its own caching.
 
+## The key store on disk (shell)
+
+In the shell, the Saavi store is not webview storage: it is a single ring
+bundle — every ring, the corruption alarms, and any quarantined records,
+as one versioned unit (`src/bundle.ts`, docs/KEY-SYNC.md) — sealed with
+OpenPGP symmetric encryption under a generated 256-bit secret held in the
+platform credential store (`ie.kaditham.saavi` / `store:v1`), and written
+atomically by the shell (`src-tauri/src/store.rs`, temp + fsync + rename,
+owner-only permissions). The private keys inside remain passphrase-locked
+exactly as before; the sealed file is a second layer, so a copied store
+file is opaque without the OS keychain secret, and the at-rest protection
+of the *file* rests on the OS login. The browser build keeps localStorage
+— a web page has nowhere better.
+
+Two behaviours are deliberate and load-bearing:
+
+- **A store that exists but cannot be opened is BLOCKED, loudly** —
+  keychain refused, secret missing, file damaged. It is never presented as
+  an empty keyring, because the natural "fix" for an empty keyring is
+  generating a second identity.
+- **Migration destroys nothing.** Moving browser-held rings to disk first
+  writes a backup and proves it reads back intact, then writes the sealed
+  store and proves *it* reads back intact, and only then removes the
+  browser copy. Any failure leaves everything where it was.
+
+There is deliberately no command to delete the store secret: an orphaned
+secret is harmless, a deleted one strands the store.
+
 ## System GnuPG mode
 
 When the user switches the keyring source to System GnuPG, Saavi is a

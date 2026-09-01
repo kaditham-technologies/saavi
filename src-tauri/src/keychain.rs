@@ -28,6 +28,38 @@ fn entry(fingerprint: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(SERVICE, &account).map_err(|e| format!("Keychain unavailable: {e}"))
 }
 
+/// The sealed disk store's secret (store.rs / src/diskstore.ts): one fixed
+/// entry, not fingerprint-keyed — it seals the whole bundle. There is
+/// deliberately no delete command: an orphaned secret is harmless, a
+/// deleted one strands the store.
+const STORE_ACCOUNT: &str = "store:v1";
+
+fn store_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(SERVICE, STORE_ACCOUNT).map_err(|e| format!("Keychain unavailable: {e}"))
+}
+
+#[tauri::command]
+pub async fn keychain_store_secret_get() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| match store_entry()?.get_password() {
+        Ok(p) => Ok(Some(p)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("Keychain read failed: {e}")),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn keychain_store_secret_set(secret: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        store_entry()?
+            .set_password(&secret)
+            .map_err(|e| format!("Keychain write failed: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Whether a usable credential store exists on this machine. Probed once:
 /// on Linux without a Secret Service daemon this is false and the UI
 /// simply does not offer the option.

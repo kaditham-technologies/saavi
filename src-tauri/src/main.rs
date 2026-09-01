@@ -6,6 +6,7 @@
 mod gpg;
 mod keychain;
 mod selfupdate;
+mod store;
 
 fn main() {
     tauri::Builder::default()
@@ -50,6 +51,12 @@ fn main() {
             keychain::keychain_get,
             keychain::keychain_set,
             keychain::keychain_delete,
+            keychain::keychain_store_secret_get,
+            keychain::keychain_store_secret_set,
+            store::store_read,
+            store::store_write,
+            store::store_backup_write,
+            store::store_backup_read,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Saavi");

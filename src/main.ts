@@ -7,6 +7,7 @@ import './style.css';
 import * as pgp from './pgp';
 import * as gpg from './gpg';
 import * as keychain from './keychain';
+import * as diskstore from './diskstore';
 import { wkdProbe } from './wkd';
 import * as pins from './pins';
 
@@ -46,22 +47,58 @@ function el(tag: string, cls?: string, text?: string): HTMLElement {
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const status = (msg: string): void => { $('status').textContent = msg; };
 
-/** Every address with a ring in the Saavi store. */
-function ringAddresses(): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i)!;
-    if (!k.startsWith('saavi-ring-')) continue;
-    const a = k.slice('saavi-ring-'.length);
-    // The alerts list and quarantined records share this prefix. Treating
-    // them as addresses makes every read re-quarantine them, so an address
-    // is required to look like one — and a quarantine key CARRIES the
-    // address it was made from (`corrupt-<email>-<ts>`), so looking like one
-    // is not enough on its own.
-    if (a.startsWith('corrupt-')) continue;
-    if (a.includes('@')) out.push(a);
+/** Every address with a ring in the Saavi store (whichever backend rules). */
+const ringAddresses = pgp.ringAddresses;
+
+// ---------- the sealed disk store (shell only) ----------
+// In the shell the Saavi store lives on disk as a sealed bundle, not in
+// webview storage; diskstore.ts installs the backend at boot. Whatever it
+// reports — a migration, a blocked store, failing writes — is rendered as
+// alert bars by refreshKeys, never swallowed.
+let diskStatus: diskstore.DiskStatus | null = null;
+let diskCoexist: diskstore.CoexistAlert[] = [];
+let storeFlushError: string | null = null;
+
+async function initStore(): Promise<void> {
+  if (!keychain.inShell() || !(await keychain.available())) return;
+  const ds = await diskstore.initDiskStore(diskstore.shellIo, (message) => {
+    storeFlushError = message;
+    void refreshKeys();
+  });
+  diskStatus = ds.status;
+  diskCoexist = ds.coexist;
+  if (ds.status.state === 'disk' && ds.status.migratedFrom === 'browser') {
+    status('Your keys moved to disk storage, sealed by the OS keychain.'
+      + (ds.status.backupPath ? ` A verified backup was kept at ${ds.status.backupPath}.` : ''));
   }
-  return out.sort();
+}
+
+function renderStoreBars(rows: HTMLElement): void {
+  const bar = (head: string, body: string): HTMLElement => {
+    const b = el('div', 'alert-bar');
+    b.append(el('strong', undefined, head), el('span', undefined, body));
+    rows.append(b);
+    return b;
+  };
+  if (diskStatus?.state === 'blocked') {
+    const b = bar('Your keys are on disk, but the store could not be opened. ',
+      diskStatus.reason + ' Nothing was changed.');
+    const retry = el('button', 'ghost', 'Retry');
+    retry.addEventListener('click', () => { void initStore().then(() => refreshKeys()); });
+    b.append(retry);
+  }
+  if (diskStatus?.state === 'browser' && diskStatus.error) {
+    bar('Disk key storage is not active. ',
+      diskStatus.error + ' Your keys remain in browser storage, unchanged.');
+  }
+  if (storeFlushError !== null) {
+    bar('Key store writes are failing. ',
+      `${storeFlushError} — changes are held in memory and retried. Do not quit Saavi until this clears, and keep backup files of your keys.`);
+  }
+  for (const c of diskCoexist) {
+    bar(`A browser-held keyring for ${c.address} sits alongside your disk store. `,
+      `It was left untouched in browser storage under “${c.storageKey}”; the disk store’s ring is the one in use. Export/import a key backup to reconcile, then remove the browser copy.`);
+  }
 }
 
 // ---------- OS keychain (Saavi store) ----------
@@ -517,20 +554,23 @@ async function refreshKeys(): Promise<void> {
   }
   if (source !== go) return;
   rows.replaceChildren();
+  renderStoreBars(rows);
   // A store record that failed to parse was quarantined, not destroyed —
   // and that must be LOUD, not a silently shorter key list.
   for (const alert of pgp.storeAlerts()) {
     const bar = el('div', 'alert-bar');
     bar.append(el('strong', undefined, `A stored key record for ${alert.email} could not be read. `));
     bar.append(el('span', undefined,
-      'It was preserved, not deleted. Re-import that key’s backup file; the damaged record is kept in browser storage under “'
+      'It was preserved, not deleted. Re-import that key’s backup file; the damaged record is kept in the key store under “'
       + alert.quarantineKey + '”.'));
     const ok = el('button', 'ghost', 'Dismiss');
     ok.addEventListener('click', () => { pgp.dismissStoreAlert(alert.quarantineKey); void refreshKeys(); });
     bar.append(ok);
     rows.append(bar);
   }
-  if (!flat.length) {
+  // While the disk store is blocked, an empty list means "unopened", not
+  // "fresh" — inviting a generate here would mint a second identity.
+  if (!flat.length && diskStatus?.state !== 'blocked') {
     const empty = el('div', 'empty');
     empty.append(el('p', undefined, 'No keys yet. This is a fresh keyring.'));
     const b = el('button', 'primary', 'Generate your first key');
@@ -1852,6 +1892,14 @@ async function wireDragDrop(): Promise<void> {
 }
 
 // ---------- boot ----------
-void refreshKeys();
-void detectGpg();
-void wireDragDrop();
+// The store backend must be settled before the first read: in the shell,
+// keys live in the sealed disk store, and reading localStorage first would
+// briefly show a keyring that is about to be swapped out underneath.
+void (async () => {
+  try { await initStore(); } catch (e) {
+    diskStatus = { state: 'browser', error: `Disk key storage failed to start: ${errMsg(e)}` };
+  }
+  void refreshKeys();
+  void detectGpg();
+  void wireDragDrop();
+})();

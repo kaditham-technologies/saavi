@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **Your keys now live on disk, sealed by the OS keychain.** In the desktop
+  shell, the Saavi store stops being browser-profile storage and becomes a
+  single file: every ring as one versioned bundle, encrypted under a
+  generated secret the platform credential store holds, written atomically
+  so a crash can never leave it half-written. Your first start after
+  updating migrates automatically — and carefully: a backup is written and
+  proven to open, the sealed store is written and proven to read back, and
+  only then is the browser-held copy removed. If any of that fails, nothing
+  has moved and Saavi says so. A store that exists but cannot be opened
+  (the keychain refused, the secret is gone) is reported plainly rather
+  than shown as an empty keyring. The browser build is unchanged. This is
+  the groundwork for one keystore shared with Kaditham Mail, and for
+  syncing keys between devices — the shape of the bundle is the point.
+
 ## 0.4.4 — 2026-08-30
 
 - **Saavi notices a release while it is open.** The update check ran once, at

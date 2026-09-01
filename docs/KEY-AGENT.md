@@ -1,6 +1,8 @@
 # Saavi as the key agent
 
-Status: **planned**, not started. Written 2026-08-30.
+Status: **phase 0 built 2026-09-01** (one store on disk — bundle.ts,
+diskstore.ts, store.rs; ships as 0.5.0); phases 1+ planned. Written
+2026-08-30.
 Page version: https://claude.ai/code/artifact/22c10115-0802-42ec-a7f0-42e993043d4f
 
 Private keys stop living in browser storage. Saavi holds them and performs

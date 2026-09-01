@@ -9,13 +9,41 @@
 //  - Rotating (generate or import while a key exists) RETIRES the old key
 //    instead of destroying it: retired private keys stay on the device so
 //    messages encrypted to them still open. Each key keeps its own passphrase.
-//  - localStorage is device-bound; backups are per-key files. Private keys
-//    are stored passphrase-locked (OpenPGP S2K); unlocked keys live only in
+//  - The store is a pluggable key–value backend: localStorage by default
+//    (device-bound), or the sealed on-disk bundle in Saavi's shell
+//    (diskstore.ts). Backups are per-key files. Private keys are stored
+//    passphrase-locked (OpenPGP S2K); unlocked keys live only in
 //    `sessionKeys`, in process memory.
 import * as openpgp from 'openpgp';
 import { addressesIn, keyCarriesAddress } from './wkd';
 
-const STORE_PREFIX = 'saavi-ring-';
+export const STORE_PREFIX = 'saavi-ring-';
+
+/** The keystore's storage surface. Everything pgp.ts persists goes through
+ *  this — every key it uses starts with `STORE_PREFIX`. */
+export interface RingStore {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+  remove(key: string): void;
+  keys(): string[];
+}
+
+export const localRingStore: RingStore = {
+  get: (k) => localStorage.getItem(k),
+  set: (k, v) => localStorage.setItem(k, v),
+  remove: (k) => localStorage.removeItem(k),
+  keys: () => {
+    const out: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) out.push(localStorage.key(i)!);
+    return out;
+  },
+};
+
+let store: RingStore = localRingStore;
+
+/** Swap the backend (the shell installs its sealed disk store at boot).
+ *  Callers must do this before any read — there is no re-keying. */
+export function setRingStore(s: RingStore): void { store = s; }
 
 export interface KeyRecord {
   publicKey: string;
@@ -64,11 +92,11 @@ const ALERTS_KEY = STORE_PREFIX + 'alerts';
 
 /** Records the store could not read: parked, never destroyed, and flagged. */
 export function storeAlerts(): StoreAlert[] {
-  try { return JSON.parse(localStorage.getItem(ALERTS_KEY) ?? '[]'); } catch { return []; }
+  try { return JSON.parse(store.get(ALERTS_KEY) ?? '[]'); } catch { return []; }
 }
 
 export function dismissStoreAlert(quarantineKey: string): void {
-  localStorage.setItem(ALERTS_KEY, JSON.stringify(storeAlerts().filter((a) => a.quarantineKey !== quarantineKey)));
+  store.set(ALERTS_KEY, JSON.stringify(storeAlerts().filter((a) => a.quarantineKey !== quarantineKey)));
 }
 
 /** A record that fails to parse is PARKED under a quarantine key and flagged
@@ -76,15 +104,15 @@ export function dismissStoreAlert(quarantineKey: string): void {
 function quarantine(email: string, raw: string): null {
   const qk = `${STORE_PREFIX}corrupt-${email}-${Date.now()}`;
   try {
-    localStorage.setItem(qk, raw);
-    localStorage.removeItem(STORE_PREFIX + email);
-    localStorage.setItem(ALERTS_KEY, JSON.stringify([...storeAlerts(), { email, at: new Date().toISOString(), quarantineKey: qk }]));
+    store.set(qk, raw);
+    store.remove(STORE_PREFIX + email);
+    store.set(ALERTS_KEY, JSON.stringify([...storeAlerts(), { email, at: new Date().toISOString(), quarantineKey: qk }]));
   } catch { /* storage full/unavailable — leave the record in place */ }
   return null;
 }
 
 function load(email: string): KeyRing | null {
-  const raw = localStorage.getItem(STORE_PREFIX + email.toLowerCase());
+  const raw = store.get(STORE_PREFIX + email.toLowerCase());
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
@@ -102,7 +130,23 @@ function load(email: string): KeyRing | null {
 }
 
 function save(email: string, ring: KeyRing): void {
-  localStorage.setItem(STORE_PREFIX + email.toLowerCase(), JSON.stringify(ring));
+  store.set(STORE_PREFIX + email.toLowerCase(), JSON.stringify(ring));
+}
+
+/** Every address with a ring in the store. The alerts list and quarantined
+ *  records share the prefix; treating them as addresses would make every
+ *  read re-quarantine them, so an address is required to look like one —
+ *  and a quarantine key CARRIES the address it was made from
+ *  (`corrupt-<email>-<ts>`), so looking like one is not enough on its own. */
+export function ringAddresses(): string[] {
+  const out: string[] = [];
+  for (const k of store.keys()) {
+    if (!k.startsWith(STORE_PREFIX)) continue;
+    const a = k.slice(STORE_PREFIX.length);
+    if (a.startsWith('corrupt-')) continue;
+    if (a.includes('@')) out.push(a);
+  }
+  return out.sort();
 }
 
 /** The ACTIVE key record (what signs and what the registry holds). */

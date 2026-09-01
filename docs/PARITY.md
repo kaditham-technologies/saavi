@@ -72,6 +72,7 @@ below.
 | Zero-access storage toggle | n/a | ✓ (Settings) | server feature |
 | Account identities as addresses | planned pairing | ✓ | |
 | OS keychain | planned | n/a (browser) | the reason Saavi exists |
+| Sealed on-disk key store (ring bundle) | ✓ (shell; 0.5.0) | n/a (browser keeps localStorage) | core carries the bundle format + `RingStore` backend hook (`bundle.ts`, `pgp.ts`); the disk mirror and migration are Saavi-only (`diskstore.ts`, `store.rs`) |
 | Publish key to keys.openpgp.org | ✓ | ✓ | core (`vks.ts` upload + request-verify) |
 | Revocation certificates | ✓ | ✓ | core (`pgp.ts`); system keys via gpg (Saavi-only) |
 | System GnuPG keyring (`gpg.rs`/`gpg.ts`) | ✓ | n/a (browser) | Saavi-only; delegates to the user's gpg |
