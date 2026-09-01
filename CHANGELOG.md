@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1 — 2026-09-01
+
+- **The close button works again.** 0.5.0's "wait for keys to reach disk
+  before closing" guard intercepted the close and then could not finish it:
+  the window-destroy call it relied on was missing its permission and failed
+  silently, leaving the X apparently dead. The permission is granted, and the
+  guard now falls back — and if it still cannot close the window, it says so
+  and lets the next press close normally instead of swallowing it. Your keys
+  were never at risk; the window just refused to leave.
+
 ## 0.5.0 — 2026-09-01
 
 - **Your keys now live on disk, sealed by the OS keychain.** In the desktop

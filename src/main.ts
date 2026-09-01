@@ -1964,8 +1964,19 @@ void (async () => {
               'Your last key change could not be written to the key store — it exists only in this window’s memory. Quitting now loses it.',
               'Quit anyway', true)) return;
           }
+          // Whatever happens below, the NEXT close attempt must pass through
+          // — a guard that cannot finish the close it intercepted turns the
+          // X button into a dead control (0.5.0 shipped exactly that: the
+          // destroy call lacked its window capability and rejected silently).
           closing = true;
-          await win.destroy();
+          try {
+            await win.destroy();
+          } catch {
+            try { await win.close(); } catch {
+              closing = false;
+              status('Saving finished, but the window could not close itself — press the close button again.');
+            }
+          }
         })();
       });
     } catch { /* no window API (plain browser) — nothing to guard */ }
