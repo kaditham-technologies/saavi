@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-09-01
 
 - **Your keys now live on disk, sealed by the OS keychain.** In the desktop
   shell, the Saavi store stops being browser-profile storage and becomes a
