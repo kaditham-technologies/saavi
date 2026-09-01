@@ -124,7 +124,9 @@ export async function parseBundle(text: string): Promise<RingBundle> {
 
 export async function sealBundle(serialised: string, secret: string): Promise<string> {
   const message = await openpgp.createMessage({ text: serialised });
-  return String(await openpgp.encrypt({ message, passwords: [secret], format: 'armored' }));
+  // AEAD: this envelope is read only by Saavi, so the interop reason for
+  // CFB+MDC does not apply; old (pre-AEAD) stores still unseal fine.
+  return String(await openpgp.encrypt({ message, passwords: [secret], format: 'armored', config: { aeadProtect: true } }));
 }
 
 export async function unsealBundle(armored: string, secret: string): Promise<string> {
@@ -162,8 +164,16 @@ export async function bundleFromStore(entries: Record<string, string>): Promise<
     } else if (tail.includes('@')) {
       try {
         const parsed = JSON.parse(raw) as KeyRing & KeyRecord;
-        if (parsed.active && isRecord(parsed.active) && Array.isArray(parsed.retired) && parsed.retired.every(isRecord)) {
-          rings.push({ address: tail, active: parsed.active, retired: parsed.retired });
+        if (parsed.active && isRecord(parsed.active) && Array.isArray(parsed.retired)) {
+          // A defect in a retired sibling must not cost the active key: park
+          // the records that fail, keep the ring with the ones that hold.
+          rings.push({ address: tail, active: parsed.active, retired: parsed.retired.filter(isRecord) });
+          parsed.retired.forEach((r, i) => {
+            if (isRecord(r)) return;
+            const qk = `${STORE_PREFIX}${QUARANTINE_MARK}${tail}-retired${i}-${Date.now()}`;
+            quarantined.push({ key: qk, raw: JSON.stringify(r) });
+            alerts.push({ email: tail, at: new Date().toISOString(), quarantineKey: qk });
+          });
         } else if (isRecord(parsed)) {
           // v1 shape — a bare record — the same in-place migration pgp.ts does.
           rings.push({ address: tail, active: parsed, retired: [] });
@@ -180,6 +190,17 @@ export async function bundleFromStore(entries: Record<string, string>): Promise<
     }
   }
   return makeBundle({ rings, alerts, quarantined, extras, pins: [] });
+}
+
+/** Whether a raw store value translates into the bundle EXACTLY as it is —
+ *  no quarantining, no dropped fields. The adoption path (diskstore.ts)
+ *  requires this, so the mirror and the bundle it writes never disagree. */
+export function parsesAsRing(raw: string): boolean {
+  try {
+    const parsed = JSON.parse(raw) as KeyRing & KeyRecord;
+    if (parsed.active) return isRecord(parsed.active) && Array.isArray(parsed.retired) && parsed.retired.every(isRecord);
+    return isRecord(parsed);
+  } catch { return false; }
 }
 
 /** The inverse: the flat entries pgp.ts reads and writes. */

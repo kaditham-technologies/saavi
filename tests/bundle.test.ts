@@ -94,6 +94,20 @@ describe('store translation', () => {
     expect(b.rings).toEqual([{ address: 'old@x.ie', active: rec('old@x.ie'), retired: [] }]);
   });
 
+  it('keeps the active key when only a retired sibling is defective', async () => {
+    const broken = { publicKey: 'PUB', privateKey: 'PRIV' }; // no `created`
+    const b = await bundleFromStore({
+      [STORE_PREFIX + 'a@x.ie']: JSON.stringify({ active: rec('a@x.ie'), retired: [rec('a@x.ie-r0'), broken] }),
+    });
+    // The ring survives with the records that hold…
+    expect(b.rings).toEqual([{ address: 'a@x.ie', active: rec('a@x.ie'), retired: [rec('a@x.ie-r0')] }]);
+    // …and the defective record is parked and flagged, not dropped.
+    expect(b.quarantined).toHaveLength(1);
+    expect(b.quarantined[0].raw).toBe(JSON.stringify(broken));
+    expect(b.alerts).toHaveLength(1);
+    expect(b.alerts[0].email).toBe('a@x.ie');
+  });
+
   it('quarantines an unreadable ring instead of dropping it', async () => {
     const b = await bundleFromStore({ [STORE_PREFIX + 'bad@x.ie']: 'not a ring at all' });
     expect(b.rings).toHaveLength(0);

@@ -31,17 +31,37 @@ fn restrict(_path: &std::path::Path) -> std::io::Result<()> {
 
 /// Write-then-rename, fsynced, owner-only. A crash mid-write leaves the
 /// previous store intact; there is never a moment with a half-written file
-/// under the real name.
+/// under the real name. The temp name is unique per write (two processes
+/// must not interleave into one file) and `create_new` refuses to open an
+/// existing path — which also refuses to write through a planted symlink.
 fn write_atomic(dir: &std::path::Path, name: &str, contents: &str) -> Result<(), String> {
     fs::create_dir_all(dir).map_err(|e| format!("Could not create the data directory: {e}"))?;
-    let tmp = dir.join(format!("{name}.tmp"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = dir.join(format!("{name}.{}.{nanos}.tmp", std::process::id()));
     let fin = dir.join(name);
-    let mut f = fs::File::create(&tmp).map_err(|e| format!("Could not write the key store: {e}"))?;
-    restrict(&tmp).map_err(|e| format!("Could not restrict the key store: {e}"))?;
-    f.write_all(contents.as_bytes())
-        .and_then(|()| f.sync_all())
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
         .map_err(|e| format!("Could not write the key store: {e}"))?;
+    restrict(&tmp).map_err(|e| format!("Could not restrict the key store: {e}"))?;
+    let written = f
+        .write_all(contents.as_bytes())
+        .and_then(|()| f.sync_all())
+        .map_err(|e| format!("Could not write the key store: {e}"));
     drop(f);
+    if let Err(e) = written {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
     fs::rename(&tmp, &fin).map_err(|e| format!("Could not commit the key store: {e}"))?;
     if let Ok(d) = fs::File::open(dir) {
         let _ = d.sync_all();

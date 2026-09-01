@@ -21,7 +21,7 @@
 //    never dropped.
 import * as pgp from './pgp';
 import {
-  bundleFromStore, parseBundle, sealBundle, serialiseBundle, storeEntries, unsealBundle,
+  bundleFromStore, parseBundle, parsesAsRing, sealBundle, serialiseBundle, storeEntries, unsealBundle,
 } from './bundle';
 
 export interface DiskIo {
@@ -36,15 +36,24 @@ export interface DiskIo {
 export type DiskStatus =
   | { state: 'browser'; error?: string }
   | { state: 'disk'; migratedFrom?: 'browser'; backupPath?: string }
-  | { state: 'blocked'; reason: string };
+  /** `missingStore`: the keychain still holds a store secret but the store
+   *  file is gone — a wiped store or a partial restore, NOT a fresh
+   *  install. Opening a fresh store then needs an explicit user say-so
+   *  (`acceptMissingStore`), never a silent default. */
+  | { state: 'blocked'; reason: string; missingStore?: true };
 
-/** A browser-held ring left alongside the disk store: same address, different
- *  content. Left exactly where it was; the user reconciles by import. */
-export interface CoexistAlert { address: string; storageKey: string }
+/** A browser-held ring left alongside the disk store, exactly where it was:
+ *  `differs` — the store holds different content for the same address;
+ *  `unreadable` — the browser value does not parse as a ring, so adopting
+ *  it would mean quarantining it behind the user's back. */
+export interface CoexistAlert { address: string; storageKey: string; kind: 'differs' | 'unreadable' }
 
 export interface DiskStore {
   status: DiskStatus;
   coexist: CoexistAlert[];
+  /** Addresses whose browser-held rings were adopted into the disk store
+   *  this boot — reported, per the design rule, never silent. */
+  adopted: string[];
   /** Await the mirror's pending write, if any. Throws what the write threw. */
   flushNow(): Promise<void>;
 }
@@ -119,24 +128,58 @@ class Mirror implements pgp.RingStore {
   }
 }
 
-/** Adopt browser-held rings the disk store has no entry for; report the
- *  ones it does. Local copies are removed only once the disk holds them. */
-async function reconcile(mirror: Mirror, local: pgp.RingStore): Promise<CoexistAlert[]> {
+const ALERTS_KEY = pgp.STORE_PREFIX + 'alerts';
+
+/** Adopt browser-held store entries the disk store has no entry for; report
+ *  every adoption and every conflict. Local copies are removed only once
+ *  the disk provably holds them — a failed flush leaves them in place. */
+async function reconcile(mirror: Mirror, local: pgp.RingStore): Promise<{ coexist: CoexistAlert[]; adopted: string[] }> {
   const coexist: CoexistAlert[] = [];
+  const adoptedKeys: string[] = [];
   const adopted: string[] = [];
   for (const key of ringKeysOf(local)) {
-    const held = mirror.get(key);
     const localValue = local.get(key);
     if (localValue === null) continue;
-    if (held === null) { mirror.set(key, localValue); adopted.push(key); }
-    else if (held !== localValue) coexist.push({ address: key.slice(pgp.STORE_PREFIX.length), storageKey: key });
-    else local.remove(key);
+    const held = mirror.get(key);
+    if (held === localValue) { local.remove(key); continue; }
+    const tail = key.slice(pgp.STORE_PREFIX.length);
+    const isAddress = tail.includes('@') && !tail.startsWith('corrupt-');
+    if (key === ALERTS_KEY) {
+      // Alarm lists merge (union by quarantine key) — they are not rings
+      // and must never render as "a keyring for alerts".
+      try {
+        const localAlerts = JSON.parse(localValue) as pgp.StoreAlert[];
+        const heldAlerts = held ? (JSON.parse(held) as pgp.StoreAlert[]) : [];
+        if (!Array.isArray(localAlerts)) continue;
+        const seen = new Set(heldAlerts.map((a) => a.quarantineKey));
+        const merged = [...heldAlerts, ...localAlerts.filter((a) => !seen.has(a.quarantineKey))];
+        mirror.set(key, JSON.stringify(merged));
+        adoptedKeys.push(key);
+      } catch { /* unreadable local alerts list — left in place, harmless */ }
+      continue;
+    }
+    if (held !== null) {
+      // Never overwritten, and for rings: reported.
+      if (isAddress) coexist.push({ address: tail, storageKey: key, kind: 'differs' });
+      continue;
+    }
+    if (isAddress && !parsesAsRing(localValue)) {
+      // Adopting this would silently quarantine it inside the bundle while
+      // the mirror kept the original — report it and leave it where it is.
+      coexist.push({ address: tail, storageKey: key, kind: 'unreadable' });
+      continue;
+    }
+    mirror.set(key, localValue);
+    adoptedKeys.push(key);
+    if (isAddress) adopted.push(tail);
   }
-  if (adopted.length) {
-    await mirror.settle();
-    for (const key of adopted) local.remove(key);
+  if (adoptedKeys.length) {
+    try {
+      await mirror.settle();
+      for (const key of adoptedKeys) local.remove(key);
+    } catch { /* browser copies kept — nothing lost; the flush alarm is already up */ }
   }
-  return coexist;
+  return { coexist, adopted };
 }
 
 /** Round-trip proof that the OS keychain actually persists the secret —
@@ -171,9 +214,16 @@ export async function initDiskStore(
   onFlushState: (message: string | null) => void,
   local: pgp.RingStore = pgp.localRingStore,
   retryMs?: number,
+  opts?: { acceptMissingStore?: boolean },
 ): Promise<DiskStore> {
-  const store = (status: DiskStatus, mirror?: Mirror, coexist: CoexistAlert[] = []): DiskStore => ({
-    status, coexist, flushNow: () => mirror?.settle() ?? Promise.resolve(),
+  // A throwing UI callback must never kill the flush loop (it would leave
+  // `flushing` latched true and every later write a silent no-op).
+  const notify = (m: string | null): void => { try { onFlushState(m); } catch { /* UI's problem, not the store's */ } };
+  const store = (
+    status: DiskStatus, mirror?: Mirror,
+    found: { coexist: CoexistAlert[]; adopted: string[] } = { coexist: [], adopted: [] },
+  ): DiskStore => ({
+    status, ...found, flushNow: () => mirror?.settle() ?? Promise.resolve(),
   });
 
   let existing: string | null;
@@ -198,13 +248,28 @@ export async function initDiskStore(
     } catch (e) {
       return store({ state: 'blocked', reason: errMsg(e) });
     }
-    const mirror = new Mirror(new Map(Object.entries(entries)), io, secret, onFlushState, retryMs);
-    const coexist = await reconcile(mirror, local).catch(() => [] as CoexistAlert[]);
+    const mirror = new Mirror(new Map(Object.entries(entries)), io, secret, notify, retryMs);
+    const found = await reconcile(mirror, local);
     pgp.setRingStore(mirror);
-    return store({ state: 'disk' }, mirror, coexist);
+    return store({ state: 'disk' }, mirror, found);
   }
 
-  // No store yet. Migrate what the webview holds, or start fresh.
+  // No store file. A surviving store secret says this is NOT a fresh
+  // install — it is a wiped store, a partial restore, or a reinstall over
+  // surviving credentials. Writing a verified empty store here would
+  // present exactly the "fresh keyring" a wiped store must never become,
+  // so it takes an explicit user decision to proceed.
+  if (!opts?.acceptMissingStore) {
+    const orphan = await io.getSecret().catch(() => null);
+    if (orphan) {
+      return store({
+        state: 'blocked', missingStore: true,
+        reason: 'The OS keychain holds a key-store secret, but no store file was found — a previous store existed on this machine and is gone. Restore the file from a backup, or choose to start over.',
+      });
+    }
+  }
+
+  // Migrate what the webview holds, or start fresh.
   const localKeys = ringKeysOf(local);
   const migrating = localKeys.length > 0;
   let backupPath: string | undefined;
@@ -230,7 +295,7 @@ export async function initDiskStore(
 
     const mirror = new Mirror(
       new Map(Object.entries(storeEntries(await parseBundle(serialised)))),
-      io, secret, onFlushState, retryMs,
+      io, secret, notify, retryMs,
     );
     pgp.setRingStore(mirror);
     return store(

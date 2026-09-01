@@ -10,6 +10,17 @@ mod store;
 
 fn main() {
     tauri::Builder::default()
+        // Registered FIRST, per the plugin's contract. Two Saavi processes
+        // would race the sealed key store (each holds a full mirror; last
+        // writer wins with the WHOLE store) — a second launch focuses the
+        // first window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            use tauri::Manager;
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         // The shell records what the user drops, so gpg.rs can tell a file
         // the user chose from a path the webview merely named.
         .manage(gpg::DroppedPaths::default())

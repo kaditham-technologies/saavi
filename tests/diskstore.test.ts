@@ -156,6 +156,64 @@ describe('opening an existing store', () => {
     expect(state.store).toBe('not an armored message');
   });
 
+  it('is BLOCKED — not a fresh keyring — when the file is gone but the secret survives', async () => {
+    // The wiped-store / evil-maid case: a secret with no file is a store
+    // that EXISTED. Writing a verified empty store here would invite the
+    // user to mint a second identity.
+    const { io, state } = fakeIo({ secret: 'survivor' });
+    const ds = await initDiskStore(io, onFlush);
+    expect(ds.status.state).toBe('blocked');
+    expect(ds.status.state === 'blocked' && ds.status.missingStore).toBe(true);
+    expect(state.store).toBeNull(); // nothing written
+
+    // Starting over is an explicit decision, not a default.
+    const fresh = await initDiskStore(io, onFlush, pgp.localRingStore, undefined, { acceptMissingStore: true });
+    expect(fresh.status).toEqual({ state: 'disk' });
+    expect(state.store).not.toBeNull();
+  });
+
+  it('merges browser-held alarm lists instead of reporting "a keyring for alerts"', async () => {
+    const { io, state } = fakeIo({ secret: 's3cret' });
+    state.store = await sealedStoreWith({
+      [P + 'alerts']: JSON.stringify([{ email: 'a@x.ie', at: 'then', quarantineKey: P + 'corrupt-a@x.ie-1' }]),
+      [P + 'corrupt-a@x.ie-1']: '{broken',
+    }, 's3cret');
+    localStorage.setItem(P + 'alerts', JSON.stringify([{ email: 'b@y.ie', at: 'later', quarantineKey: P + 'corrupt-b@y.ie-2' }]));
+    localStorage.setItem(P + 'corrupt-b@y.ie-2', '{also broken');
+    const ds = await initDiskStore(io, onFlush);
+    expect(ds.coexist).toEqual([]);
+    expect(pgp.storeAlerts().map((a) => a.quarantineKey).sort())
+      .toEqual([P + 'corrupt-a@x.ie-1', P + 'corrupt-b@y.ie-2']);
+    expect(localStorage.getItem(P + 'alerts')).toBeNull();
+    expect(localStorage.getItem(P + 'corrupt-b@y.ie-2')).toBeNull(); // parked record adopted too
+  });
+
+  it('reports an unreadable browser ring instead of quarantining it behind the user’s back', async () => {
+    const { io, state } = fakeIo({ secret: 's3cret' });
+    state.store = await sealedStoreWith({ [P + 'a@x.ie']: ringJson('a@x.ie') }, 's3cret');
+    localStorage.setItem(P + 'b@y.ie', 'not a ring at all');
+    const ds = await initDiskStore(io, onFlush);
+    expect(ds.coexist).toEqual([{ address: 'b@y.ie', storageKey: P + 'b@y.ie', kind: 'unreadable' }]);
+    expect(ds.adopted).toEqual([]);
+    expect(localStorage.getItem(P + 'b@y.ie')).toBe('not a ring at all');
+    const after = await parseBundle(await unsealBundle(state.store!, 's3cret'));
+    expect(after.rings.map((r) => r.address)).toEqual(['a@x.ie']);
+  });
+
+  it('keeps the coexist report and the browser copies when the adoption flush fails', async () => {
+    const { io, state } = fakeIo({ secret: 's3cret' });
+    state.store = await sealedStoreWith({ [P + 'a@x.ie']: ringJson('a@x.ie') }, 's3cret');
+    localStorage.setItem(P + 'a@x.ie', ringJson('a@x.ie-DIFFERENT'));
+    localStorage.setItem(P + 'b@y.ie', ringJson('b@y.ie'));
+    io.writeStore = async () => { throw new Error('disk full'); };
+    const ds = await initDiskStore(io, onFlush, pgp.localRingStore, 60_000);
+    // The conflict report survives the write failure…
+    expect(ds.coexist).toEqual([{ address: 'a@x.ie', storageKey: P + 'a@x.ie', kind: 'differs' }]);
+    // …and the adopted ring's browser copy is NOT removed: disk never held it.
+    expect(localStorage.getItem(P + 'b@y.ie')).toBe(ringJson('b@y.ie'));
+    expect(flushStates).toEqual(['disk full']);
+  });
+
   it('adopts a browser ring the store lacks and reports one it holds differently', async () => {
     const { io, state } = fakeIo({ secret: 's3cret' });
     state.store = await sealedStoreWith({ [P + 'a@x.ie']: ringJson('a@x.ie') }, 's3cret');
@@ -163,7 +221,8 @@ describe('opening an existing store', () => {
     localStorage.setItem(P + 'b@y.ie', ringJson('b@y.ie'));
     const ds = await initDiskStore(io, onFlush);
 
-    expect(ds.coexist).toEqual([{ address: 'a@x.ie', storageKey: P + 'a@x.ie' }]);
+    expect(ds.coexist).toEqual([{ address: 'a@x.ie', storageKey: P + 'a@x.ie', kind: 'differs' }]);
+    expect(ds.adopted).toEqual(['b@y.ie']); // adoption is REPORTED, never silent
     // The differing ring was left exactly where it was; the new one moved.
     expect(localStorage.getItem(P + 'a@x.ie')).toBe(ringJson('a@x.ie-DIFFERENT'));
     expect(localStorage.getItem(P + 'b@y.ie')).toBeNull();

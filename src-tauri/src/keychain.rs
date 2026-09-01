@@ -49,12 +49,21 @@ pub async fn keychain_store_secret_get() -> Result<Option<String>, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Create-only: overwriting the secret while a store is sealed under it
+/// would strand every key in that store — and nothing in the flow ever
+/// needs an overwrite. (Two racing first-runs both pass this check; the
+/// caller's read-back proof decides the winner and the loser aborts.)
 #[tauri::command]
 pub async fn keychain_store_secret_set(secret: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        store_entry()?
-            .set_password(&secret)
-            .map_err(|e| format!("Keychain write failed: {e}"))
+        let entry = store_entry()?;
+        match entry.get_password() {
+            Ok(_) => Err("A key-store secret already exists; refusing to overwrite it.".into()),
+            Err(keyring::Error::NoEntry) => entry
+                .set_password(&secret)
+                .map_err(|e| format!("Keychain write failed: {e}")),
+            Err(e) => Err(format!("Keychain read failed: {e}")),
+        }
     })
     .await
     .map_err(|e| e.to_string())?

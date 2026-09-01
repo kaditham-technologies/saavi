@@ -1,8 +1,11 @@
 # Multi-device key sync
 
 Status: **S0 built 2026-09-01** (bundle.ts + the sealed disk store,
-diskstore.ts/store.rs — the 0.5.0 on-disk format below); S1–S3 planned.
-Written 2026-08-30.
+diskstore.ts/store.rs — the 0.5.0 on-disk format below); argus + cerberus
+gates folded the same day. Deliberately deferred to S1: a freshness /
+generation counter for the sealed store (the seal authenticates content,
+not recency — SECURITY.md states the rollback limit plainly). S1–S3
+planned. Written 2026-08-30.
 Supersedes the one-line sketch of P4 in the E2EE readiness plan.
 Blocks: 0.5.0's on-disk format. Related: [KEY-AGENT.md](KEY-AGENT.md).
 

@@ -55,21 +55,35 @@ const ringAddresses = pgp.ringAddresses;
 // webview storage; diskstore.ts installs the backend at boot. Whatever it
 // reports — a migration, a blocked store, failing writes — is rendered as
 // alert bars by refreshKeys, never swallowed.
+let diskHandle: diskstore.DiskStore | null = null;
 let diskStatus: diskstore.DiskStatus | null = null;
 let diskCoexist: diskstore.CoexistAlert[] = [];
+let diskAdopted: string[] = [];
 let storeFlushError: string | null = null;
+let storeInitBusy = false;
 
-async function initStore(): Promise<void> {
-  if (!keychain.inShell() || !(await keychain.available())) return;
-  const ds = await diskstore.initDiskStore(diskstore.shellIo, (message) => {
-    storeFlushError = message;
-    void refreshKeys();
-  });
-  diskStatus = ds.status;
-  diskCoexist = ds.coexist;
-  if (ds.status.state === 'disk' && ds.status.migratedFrom === 'browser') {
-    status('Your keys moved to disk storage, sealed by the OS keychain.'
-      + (ds.status.backupPath ? ` A verified backup was kept at ${ds.status.backupPath}.` : ''));
+// No keychain.available() gate here: initDiskStore itself answers a
+// refusing or absent keychain, and BLOCKED must be reachable — bailing
+// early would show a migrated user the "fresh keyring" invitation while
+// their real keys sit sealed on disk.
+async function initStore(acceptMissingStore = false): Promise<void> {
+  if (!keychain.inShell() || storeInitBusy) return;
+  storeInitBusy = true;
+  try {
+    const ds = await diskstore.initDiskStore(diskstore.shellIo, (message) => {
+      storeFlushError = message;
+      void refreshKeys();
+    }, undefined, undefined, { acceptMissingStore });
+    diskHandle = ds;
+    diskStatus = ds.status;
+    diskCoexist = ds.coexist;
+    diskAdopted = ds.adopted;
+    if (ds.status.state === 'disk' && ds.status.migratedFrom === 'browser') {
+      status('Your keys moved to disk storage, sealed by the OS keychain.'
+        + (ds.status.backupPath ? ` A verified backup was kept at ${ds.status.backupPath}.` : ''));
+    }
+  } finally {
+    storeInitBusy = false;
   }
 }
 
@@ -82,7 +96,20 @@ function renderStoreBars(rows: HTMLElement): void {
   };
   if (diskStatus?.state === 'blocked') {
     const b = bar('Your keys are on disk, but the store could not be opened. ',
-      diskStatus.reason + ' Nothing was changed.');
+      diskStatus.reason + ' Nothing was changed. A key generated now would live in browser storage until the store opens again.');
+    if (diskStatus.missingStore) {
+      const fresh = el('button', 'ghost', 'Start over with a fresh store');
+      fresh.addEventListener('click', () => {
+        void (async () => {
+          if (!await confirmBox('Start a fresh key store?',
+            'This writes a new, empty key store. If your old store file still exists in a backup somewhere, restore it INSTEAD — a fresh store cannot read your old sealed mail.',
+            'Start fresh', true)) return;
+          await initStore(true);
+          void refreshKeys();
+        })();
+      });
+      b.append(fresh);
+    }
     const retry = el('button', 'ghost', 'Retry');
     retry.addEventListener('click', () => { void initStore().then(() => refreshKeys()); });
     b.append(retry);
@@ -95,9 +122,21 @@ function renderStoreBars(rows: HTMLElement): void {
     bar('Key store writes are failing. ',
       `${storeFlushError} — changes are held in memory and retried. Do not quit Saavi until this clears, and keep backup files of your keys.`);
   }
+  if (diskAdopted.length) {
+    const b = bar(`Browser-held keys were moved into your disk store: ${diskAdopted.join(', ')}. `,
+      'They were found in browser storage at start-up (usually a key made while the disk store was unavailable) and are now part of the sealed store. If you did not expect them, check their fingerprints in Details.');
+    const ok = el('button', 'ghost', 'Dismiss');
+    ok.addEventListener('click', () => { diskAdopted = []; void refreshKeys(); });
+    b.append(ok);
+  }
   for (const c of diskCoexist) {
-    bar(`A browser-held keyring for ${c.address} sits alongside your disk store. `,
-      `It was left untouched in browser storage under “${c.storageKey}”; the disk store’s ring is the one in use. Export/import a key backup to reconcile, then remove the browser copy.`);
+    if (c.kind === 'differs') {
+      bar(`A browser-held keyring for ${c.address} sits alongside your disk store. `,
+        `It was left untouched in browser storage under “${c.storageKey}”; the disk store’s ring is the one in use. Export/import a key backup to reconcile, then remove the browser copy.`);
+    } else {
+      bar(`A browser-held record for ${c.address} could not be read. `,
+        `It was left untouched in browser storage under “${c.storageKey}”, not moved into the disk store. Re-import that key’s backup file if it is one of yours.`);
+    }
   }
 }
 
@@ -623,13 +662,18 @@ async function refreshSystemKeys(rows: HTMLElement): Promise<void> {
   try {
     systemKeys = await gpg.listKeys();
   } catch (e) {
-    rows.replaceChildren(el('p', 'empty', `Could not read the GnuPG keyring: ${errMsg(e)}`));
+    // The store bars must survive every render path — a blocked store or a
+    // failing flush stays visible on the System tab too.
+    rows.replaceChildren();
+    renderStoreBars(rows);
+    rows.append(el('p', 'empty', `Could not read the GnuPG keyring: ${errMsg(e)}`));
     status('System GnuPG keyring · unavailable');
     return;
   }
   if (source !== 'system') return;
   systemKeys.sort((a, b) => Number(b.has_secret) - Number(a.has_secret) || keyLabel(a).localeCompare(keyLabel(b)));
   rows.replaceChildren();
+  renderStoreBars(rows);
   if (!systemKeys.length) {
     const empty = el('div', 'empty');
     empty.append(el('p', undefined, `The GnuPG keyring at ${gpgInfo?.homedir ?? '~/.gnupg'} is empty.`));
@@ -1902,4 +1946,28 @@ void (async () => {
   void refreshKeys();
   void detectGpg();
   void wireDragDrop();
+  // Persistence is write-behind now, so closing must wait for the mirror:
+  // kill the window mid-flush and a just-generated key would exist nowhere.
+  if (keychain.inShell()) {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const win = getCurrentWindow();
+      let closing = false;
+      await win.onCloseRequested((e) => {
+        if (closing || !diskHandle) return;
+        e.preventDefault();
+        void (async () => {
+          try {
+            await diskHandle!.flushNow();
+          } catch {
+            if (!await confirmBox('Quit without saving keys?',
+              'Your last key change could not be written to the key store — it exists only in this window’s memory. Quitting now loses it.',
+              'Quit anyway', true)) return;
+          }
+          closing = true;
+          await win.destroy();
+        })();
+      });
+    } catch { /* no window API (plain browser) — nothing to guard */ }
+  }
 })();

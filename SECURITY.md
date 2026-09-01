@@ -110,17 +110,43 @@ of the *file* rests on the OS login. The browser build keeps localStorage
 
 Two behaviours are deliberate and load-bearing:
 
-- **A store that exists but cannot be opened is BLOCKED, loudly** —
-  keychain refused, secret missing, file damaged. It is never presented as
-  an empty keyring, because the natural "fix" for an empty keyring is
-  generating a second identity.
+- **A store that cannot be opened is BLOCKED, loudly** — keychain refused,
+  secret missing, file damaged, or the file *gone while its keychain
+  secret survives* (a wiped store is not a fresh install). It is never
+  presented as an empty keyring, because the natural "fix" for an empty
+  keyring is generating a second identity. Starting over takes an explicit
+  confirmation.
 - **Migration destroys nothing.** Moving browser-held rings to disk first
   writes a backup and proves it reads back intact, then writes the sealed
   store and proves *it* reads back intact, and only then removes the
-  browser copy. Any failure leaves everything where it was.
+  browser copy. Any failure leaves everything where it was. Rings found in
+  browser storage beside an existing disk store are adopted (and named in
+  an alert) or reported — never overwritten, never moved silently.
 
-There is deliberately no command to delete the store secret: an orphaned
-secret is harmless, a deleted one strands the store.
+There is deliberately no command to delete the store secret (an orphaned
+secret is harmless, a deleted one strands the store), and the secret
+cannot be overwritten once set. Writes to the store are batched; the
+window refuses to close until the last change is on disk, and a second
+Saavi launch focuses the running window rather than racing it for the
+store file.
+
+Stated limits, so this section cannot over-promise:
+
+- The seal gives confidentiality and tamper-detection, **not freshness**:
+  an attacker who can replace the file with an older sealed copy rolls the
+  store back undetected — a rotated-away key would become active again. A
+  generation counter is planned with the sync work (docs/KEY-SYNC.md).
+- On **Windows** the owner-only file mode is a no-op; the store inherits
+  the profile's ACL under `%APPDATA%`.
+- On a **Linux machine with no Secret Service daemon** there is no
+  keychain to seal under; keys remain in app storage and Saavi shows a
+  bar saying so rather than pretending.
+- The migration's **backup file** — the plain bundle, every private key
+  in it still passphrase-locked — remains in the app data directory until
+  the user removes it. That is deliberate: it is the only way back if the
+  keychain entry is ever lost, and it is exactly as protected as the
+  pre-0.5.0 store was. Move it somewhere safer if you prefer; Saavi names
+  its location after migrating.
 
 ## System GnuPG mode
 

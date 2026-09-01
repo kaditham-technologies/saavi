@@ -15,6 +15,14 @@
   than shown as an empty keyring. The browser build is unchanged. This is
   the groundwork for one keystore shared with Kaditham Mail, and for
   syncing keys between devices — the shape of the bundle is the point.
+- **Closing waits for your keys.** Store writes are batched, so the window
+  now refuses to close until the last change is safely on disk — and asks,
+  rather than silently losing it, if the disk is refusing writes. A second
+  Saavi launch focuses the running window instead of racing it for the
+  store file. A store file that has gone missing while its keychain secret
+  survives is reported as exactly that, never as a fresh keyring; keys
+  found in browser storage beside the disk store are moved in and named in
+  an alert, or left where they are and reported — never touched silently.
 
 ## 0.4.4 — 2026-08-30
 
