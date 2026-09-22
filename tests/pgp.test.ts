@@ -414,3 +414,29 @@ describe('audit follow-ups', () => {
     expect(needed!.isActive).toBe(true);
   });
 });
+
+describe('argon2 lock (the split design ring lock)', () => {
+  it('generateKeys with argon2 lock produces an armor the passphrase opens, pinned params', async () => {
+    const rec = await pgp.generateKeys('argon@example.org', 'A', PASS, 'curve25519', 'argon2');
+    const openpgp = await import('openpgp');
+    const k = await openpgp.readPrivateKey({ armoredKey: rec.privateKey });
+    expect(k.isDecrypted()).toBe(false);
+    const un = await openpgp.decryptKey({ privateKey: k, passphrase: PASS });
+    expect(un.isDecrypted()).toBe(true);
+    expect(pgp.ARGON2_LOCK_CONFIG.s2kArgon2Params).toEqual({ passes: 3, parallelism: 4, memoryExponent: 16 });
+    expect(pgp.ARGON2_LOCK_CONFIG.aeadProtect).toBe(true);
+  });
+  it('relockArmor moves a legacy lock to argon2 and refuses a wrong passphrase', async () => {
+    const rec = await pgp.generateKeys('relock@example.org', 'R', PASS);
+    await expect(pgp.relockArmor(rec.privateKey, 'wrong-passphrase', 'new passphrase 12')).rejects.toThrow(/does not unlock/);
+    const relocked = await pgp.relockArmor(rec.privateKey, PASS, 'new passphrase 12');
+    const openpgp = await import('openpgp');
+    await expect(openpgp.decryptKey({ privateKey: await openpgp.readPrivateKey({ armoredKey: relocked }), passphrase: PASS })).rejects.toThrow();
+    const un = await openpgp.decryptKey({ privateKey: await openpgp.readPrivateKey({ armoredKey: relocked }), passphrase: 'new passphrase 12' });
+    expect(un.isDecrypted()).toBe(true);
+  });
+  it('relockArmor never accepts an empty new passphrase', async () => {
+    const rec = await pgp.generateKeys('empty@example.org', 'E', PASS);
+    await expect(pgp.relockArmor(rec.privateKey, PASS, '')).rejects.toThrow(/empty/);
+  });
+});

@@ -236,16 +236,42 @@ async function adopt(email: string, rec: KeyRecord, fpr?: string): Promise<void>
 
 export type KeyAlgo = 'curve25519' | 'rsa4096';
 
+/** How the stored private armor is locked. `legacy` is OpenPGP's default
+ *  iterated-salted S2K; `argon2` is Argon2id (RFC 9580), the lock the
+ *  password-split design requires (webmail docs/ZERO-ACCESS.md) because a
+ *  memory-hard S2K is what makes a password-derived lock grind-resistant.
+ *  Argon2 S2K requires AEAD secret-key protection in OpenPGP.js, which
+ *  gpg only reads from 2.4 up — a backup locked this way may not import
+ *  into an old gpg. */
+export type LockStyle = 'legacy' | 'argon2';
+
+/** Pinned Argon2id parameters — t=3, p=4, 64 MiB (2^16 KiB). PINNED so a
+ *  library default change can never silently weaken a new lock; measured
+ *  2026-09-22 at ~1.1 s per lock/unlock in wasm on server-class hardware
+ *  (M0). Changing these re-locks nothing retroactively — parameters live
+ *  in each armor — but every change must be a deliberate decision here. */
+export const ARGON2_LOCK_CONFIG = {
+  s2kType: openpgp.enums.s2k.argon2,
+  s2kArgon2Params: { passes: 3, parallelism: 4, memoryExponent: 16 },
+  aeadProtect: true,
+} as const;
+
+function lockConfig(lock: LockStyle): Partial<typeof openpgp.config> | undefined {
+  return lock === 'argon2' ? (ARGON2_LOCK_CONFIG as Partial<typeof openpgp.config>) : undefined;
+}
+
 export async function generateKeys(
   email: string,
   name: string,
   passphrase: string,
-  algo: KeyAlgo = 'curve25519'
+  algo: KeyAlgo = 'curve25519',
+  lock: LockStyle = 'legacy'
 ): Promise<KeyRecord> {
   const base = {
     userIDs: [{ name: name || email, email }],
     passphrase,
     format: 'armored' as const,
+    ...(lockConfig(lock) ? { config: lockConfig(lock) } : {}),
   };
   const { privateKey, publicKey, revocationCertificate } =
     algo === 'rsa4096'
@@ -254,6 +280,30 @@ export async function generateKeys(
   const rec: KeyRecord = { publicKey, privateKey, created: new Date().toISOString(), revocationCertificate };
   await adopt(email, rec);
   return rec;
+}
+
+/** Re-lock a private armor under a new passphrase — the password-change,
+ *  fold-in and override moves of the split design. Verifies the old
+ *  passphrase by actually unlocking (never re-arms an armor it cannot
+ *  open), locks with our S2K of the requested style, and returns the new
+ *  armor. Pure armor-in/armor-out: the caller owns ring/record state, so
+ *  the same helper serves the keystore, the keychain re-lock and the
+ *  phrase-locked backup file. */
+export async function relockArmor(
+  armored: string,
+  oldPassphrase: string,
+  newPassphrase: string,
+  lock: LockStyle = 'argon2'
+): Promise<string> {
+  if (!newPassphrase) throw new Error('A key cannot be locked with an empty passphrase.');
+  const parsed = await openpgp.readPrivateKey({ armoredKey: armored });
+  let unlocked: openpgp.PrivateKey;
+  try {
+    unlocked = parsed.isDecrypted() ? parsed : await openpgp.decryptKey({ privateKey: parsed, passphrase: oldPassphrase });
+  } catch {
+    throw new Error('That passphrase does not unlock this key.');
+  }
+  return (await openpgp.encryptKey({ privateKey: unlocked, passphrase: newPassphrase, config: lockConfig(lock) })).armor();
 }
 
 /**
