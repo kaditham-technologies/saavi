@@ -289,6 +289,32 @@ export async function generateKeys(
  *  armor. Pure armor-in/armor-out: the caller owns ring/record state, so
  *  the same helper serves the keystore, the keychain re-lock and the
  *  phrase-locked backup file. */
+/** Additive re-lock of an address's ACTIVE key — the password-change and
+ *  fold-in move of the split design (webmail docs/ZERO-ACCESS.md). The
+ *  active armor is re-locked under the new secret and the OLD-lock armor
+ *  survives as a retired record of the same key, so the keychain's
+ *  armor-multiset guard sees only growth and no ordering of concurrent
+ *  changes can strand a device (C5). The superseded armor leaves later,
+ *  through the signed purge — never here. Retired keys keep the locks
+ *  they wear (their passphrases are not in hand); that partial state is
+ *  the design's, not an accident. Returns false when the address holds
+ *  no ring; throws when the old secret does not open the active key. */
+export async function relockActive(
+  email: string,
+  oldSecret: string,
+  newSecret: string,
+  lock: LockStyle = 'argon2'
+): Promise<boolean> {
+  const ring = ringFor(email);
+  if (!ring) return false;
+  const newArmor = await relockArmor(ring.active.privateKey, oldSecret, newSecret, lock);
+  save(email, {
+    active: { ...ring.active, privateKey: newArmor },
+    retired: [...ring.retired, { ...ring.active }],
+  });
+  return true;
+}
+
 export async function relockArmor(
   armored: string,
   oldPassphrase: string,

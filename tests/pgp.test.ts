@@ -440,3 +440,24 @@ describe('argon2 lock (the split design ring lock)', () => {
     await expect(pgp.relockArmor(rec.privateKey, PASS, '')).rejects.toThrow(/empty/);
   });
 });
+
+describe('relockActive (additive re-lock, the password-change move)', () => {
+  it('re-locks the active armor and keeps the old-lock armor as retired', async () => {
+    const rec = await pgp.generateKeys('shift@example.org', 'S', PASS);
+    expect(await pgp.relockActive('shift@example.org', PASS, 'the next secret 1')).toBe(true);
+    const ring = pgp.ringFor('shift@example.org')!;
+    expect(ring.retired.map((r) => r.privateKey)).toContain(rec.privateKey); // growth, never loss
+    const openpgp = await import('openpgp');
+    const k = await openpgp.readPrivateKey({ armoredKey: ring.active.privateKey });
+    await expect(openpgp.decryptKey({ privateKey: k, passphrase: PASS })).rejects.toThrow();
+    const un = await openpgp.decryptKey({ privateKey: await openpgp.readPrivateKey({ armoredKey: ring.active.privateKey }), passphrase: 'the next secret 1' });
+    expect(un.isDecrypted()).toBe(true);
+  });
+  it('refuses a wrong old secret before touching anything; no ring is just false', async () => {
+    await pgp.generateKeys('still@example.org', 'S', PASS);
+    const before = JSON.stringify(pgp.ringFor('still@example.org'));
+    await expect(pgp.relockActive('still@example.org', 'not it at all!', 'x'.repeat(14))).rejects.toThrow(/does not unlock/);
+    expect(JSON.stringify(pgp.ringFor('still@example.org'))).toBe(before);
+    expect(await pgp.relockActive('nobody@example.org', PASS, 'x'.repeat(14))).toBe(false);
+  });
+});
