@@ -52,6 +52,12 @@ export interface KeyRecord {
   /** Armored revocation certificate, captured at generation. Absent on
    *  imported and pre-capture keys; those derive one on demand (unlocked). */
   revocationCertificate?: string;
+  /** Which lock generation this armor wears (webmail docs/ZERO-ACCESS.md
+   *  C4/A1): every re-lock bumps it, so devices can tell which lock is
+   *  NEWEST for the same key without trusting order. Attacker-writable
+   *  data in a synced keychain — the consumer bounds it. Absent = 0
+   *  (pre-epoch armors). */
+  lockEpoch?: number;
 }
 
 export interface KeyRing {
@@ -309,7 +315,27 @@ export async function relockActive(
   if (!ring) return false;
   const newArmor = await relockArmor(ring.active.privateKey, oldSecret, newSecret, lock);
   save(email, {
-    active: { ...ring.active, privateKey: newArmor },
+    active: { ...ring.active, privateKey: newArmor, lockEpoch: (ring.active.lockEpoch ?? 0) + 1 },
+    retired: [...ring.retired, { ...ring.active }],
+  });
+  return true;
+}
+
+/** Additive re-lock of the ACTIVE key from the SESSION's unlocked copy —
+ *  the fold-in's path (webmail docs/ZERO-ACCESS.md M6): a ring already
+ *  open in this session re-locks under a new secret without the old
+ *  passphrase being retyped. Same shape as relockActive: the old-lock
+ *  armor is retired, never dropped (C5); the signed purge removes it
+ *  later. Throws 'locked' when the ring is not unlocked here. */
+export async function relockActiveFromSession(email: string, newSecret: string, lock: LockStyle = 'argon2'): Promise<boolean> {
+  const ring = ringFor(email);
+  if (!ring) return false;
+  const fpr = await rawFingerprint(ring.active);
+  const priv = sessionKeys.get(fpr);
+  if (!priv) throw new Error('locked');
+  const newArmor = (await openpgp.encryptKey({ privateKey: priv, passphrase: newSecret, config: lockConfig(lock) })).armor();
+  save(email, {
+    active: { ...ring.active, privateKey: newArmor, lockEpoch: (ring.active.lockEpoch ?? 0) + 1 },
     retired: [...ring.retired, { ...ring.active }],
   });
   return true;
@@ -723,6 +749,14 @@ export async function saveBackup(email: string, fingerprint?: string): Promise<s
   if (!rec) return null;
   const text = `Saavi key backup — ${email}\nKeep this file and your passphrase somewhere safe. Without both, encrypted letters cannot be read.\n\n${rec.privateKey}\n\n${rec.publicKey}\n`;
   const filename = `saavi-key-backup-${email.replace(/[^a-z0-9.@-]/gi, '_')}.txt`;
+  return saveTextFile(filename, text);
+}
+
+/** Save a text file: a real save dialog inside the Tauri shell (blob-anchor
+ *  downloads are inert in the webview), an anchor download in a browser.
+ *  Returns the saved path, '' for a browser download (which is BLIND — the
+ *  page cannot observe whether the save completed), or null if cancelled. */
+export async function saveTextFile(filename: string, text: string): Promise<string | null> {
   if ('__TAURI_INTERNALS__' in window) {
     const { save } = await import('@tauri-apps/plugin-dialog');
     const { writeTextFile } = await import('@tauri-apps/plugin-fs');
@@ -741,6 +775,19 @@ export async function saveBackup(email: string, fingerprint?: string): Promise<s
 }
 
 // ---------- signing & verification (cleartext), files ----------
+
+/** Detached armored signature over the EXACT bytes of `text` (binary
+ *  document, type 0x00) with the address's unlocked active key — the
+ *  signed purge's proof of ring possession (webmail docs/ZERO-ACCESS.md
+ *  C2). Binary, not cleartext: the verifying side hashes the payload
+ *  bytes as sent, with no canonicalization to disagree over. */
+export async function signDetached(text: string, signerEmail: string): Promise<string> {
+  const fpr = activeByEmail.get(signerEmail.toLowerCase());
+  const key = fpr ? sessionKeys.get(fpr) : null;
+  if (!key) throw new Error('locked');
+  const message = await openpgp.createMessage({ binary: new TextEncoder().encode(text) });
+  return String(await openpgp.sign({ message, signingKeys: key, detached: true }));
+}
 
 /** Clearsign text with the given address's unlocked active key. */
 export async function signText(text: string, signerEmail: string): Promise<string> {
