@@ -45,7 +45,17 @@ describe('gatePassword — the enforced floor', () => {
     const { gatePassword, generatePassphrase } = await import('../src/passphrase');
     expect(gatePassword('correct horse battery staple').ok).toBe(true);
     expect(gatePassword('Tirunelveli-halwa-1998').ok).toBe(true);
-    for (let i = 0; i < 20; i++) expect(gatePassword(generatePassphrase(6)).ok).toBe(true);
+    for (let i = 0; i < 100; i++) expect(gatePassword(generatePassphrase(6)).ok).toBe(true);
+  });
+  it('one unlucky diceware word never condemns a phrase — but a core with no honest company still falls', async () => {
+    const { gatePassword } = await import('../src/passphrase');
+    // The EFF list holds core-prefixed words (password, secret, shadow,
+    // dragonfly…). Amid honest words they are fine…
+    expect(gatePassword('dragonfly kimono unrest overcast').ok).toBe(true);
+    expect(gatePassword('password caravan riverbed').ok).toBe(true);
+    // …but a core padded with next to nothing is still the first guess.
+    expect(gatePassword('password xy 1').ok).toBe(false);
+    expect(gatePassword('secret shadow password dragon').ok).toBe(false);   // cores keeping each other company
   });
   it('describeStrength never approves what the gate refuses', async () => {
     const { gatePassword, describeStrength } = await import('../src/passphrase');

@@ -17,7 +17,7 @@ import * as pins from './pins';
 const PIN_OWNER = '';
 import { vksLookup, vksLookupKeyId, vksUpload, vksRequestVerify } from './vks';
 import { ask, confirmBox, notice } from './ui';
-import { generatePassphrase, passphraseBits, describeStrength } from './passphrase';
+import { generatePassphrase, passphraseBits, describeStrength, gatePassword } from './passphrase';
 import * as update from './update';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
@@ -1204,7 +1204,14 @@ $('modal-form').addEventListener('submit', async (e) => {
         showDone(gpg.fmtFpr(fpr), 'Stored in your GnuPG keyring with ultimate trust. A backup is the secret key as gpg exports it — still locked with the passphrase you gave pinentry.');
       } else {
         if (pass !== ($('m-pass2') as HTMLInputElement).value) throw new Error('The passphrases do not match.');
-        if (pass.length < 12) throw new Error('Use at least 12 characters — this passphrase is the whole lock. "Suggest one" makes a strong one for you.');
+        // The floor is enforced, not nudged (webmail docs/ZERO-ACCESS.md M7,
+        // "both apps"): this passphrase is the whole lock on real key
+        // material. Imports are exempt — an existing key's passphrase is
+        // what it is; gpg-lane keys answer to pinentry, not to us.
+        {
+          const gate = gatePassword(pass);
+          if (!gate.ok) throw new Error(`${gate.reason} — "Suggest one" makes a strong passphrase for you.`);
+        }
         const rec = await pgp.generateKeys(email, name, pass, algo);
         await pgp.unlockPrivateKey(email, pass);
         if (($('m-remember') as HTMLInputElement).checked) {

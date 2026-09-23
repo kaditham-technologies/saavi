@@ -87,10 +87,26 @@ export function gatePassword(p: string): { ok: boolean; reason: string } {
   if (compact.length >= 8 && KEYBOARD_WALKS.some((walk) => (walk + walk).includes(compact))) {
     return { ok: false, reason: 'Keyboard rows and sequences are the first guesses — try the generator.' };
   }
+  // A blocked core condemns the input only when there is less than one
+  // honest word's worth of anything else: the rule exists to catch
+  // "password2026!" — a common password padded out to length — not to
+  // refuse a diceware phrase for containing one unlucky word. The EFF
+  // list itself holds eleven core-prefixed words (password, secret,
+  // shadow, dragonfly…), so the per-word version refused ~1 in 120 of the
+  // generator's OWN phrases — caught by this file's property test the day
+  // the gate went hard.
+  let blockedMass = 0;
+  let honestMass = 0;
   for (const word of fold(p).split(' ')) {
+    if (!word) continue;
     if (word.length >= 5 && (BLOCKED_CORES.has(word) || [...BLOCKED_CORES].some((core) => word.startsWith(core)))) {
-      return { ok: false, reason: 'Built on a very common password — try the generator.' };
+      blockedMass += word.length;
+    } else {
+      honestMass += word.length;
     }
+  }
+  if (blockedMass > 0 && honestMass < 5) {
+    return { ok: false, reason: 'Built on a very common password — try the generator.' };
   }
   const half = compact.slice(0, Math.floor(compact.length / 2));
   if (half.length >= 6 && compact === half + half) {
