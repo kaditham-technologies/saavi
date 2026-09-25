@@ -37,6 +37,14 @@ export async function wkdUrls(address: string): Promise<string[]> {
   ];
 }
 
+/** A host app can route WKD requests through its own transport — the
+ *  Kaditham webmail runs under connect-src 'self' and sends every lookup
+ *  through its server's vetted fetcher. The logic here (which URLs, the
+ *  size cap, the address check on the key) stays the same either way. */
+export type WkdTransport = (url: string, init: { signal: AbortSignal }) => Promise<Response>;
+let transport: WkdTransport | null = null;
+export function setWkdTransport(fn: WkdTransport | null): void { transport = fn; }
+
 /** Webview fetch enforces CORS like any browser, and WKD servers rarely send
  *  ACAO headers — inside the Tauri shell the request must go through the
  *  Rust-side http plugin instead. */
@@ -44,6 +52,7 @@ async function wkdFetch(url: string): Promise<Response> {
   // A domain that blackholes the request must not stall sealing for the
   // platform's TCP timeout — give each candidate URL ten seconds.
   const init = { signal: AbortSignal.timeout(10_000) };
+  if (transport) return transport(url, init);
   if ('__TAURI_INTERNALS__' in window) {
     const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
     return tauriFetch(url, init);
