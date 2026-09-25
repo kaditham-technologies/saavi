@@ -365,7 +365,9 @@ export async function relockArmor(
  * stored); a cleartext export is locked with the given passphrase first.
  * A previously active key is retired, not destroyed.
  */
-export async function importKey(email: string, armoredSource: string, passphrase: string): Promise<KeyRecord> {
+export async function importKey(
+  email: string, armoredSource: string, passphrase: string, lock: LockStyle = 'legacy'
+): Promise<KeyRecord> {
   const blocks = armoredSource.match(
     /-----BEGIN PGP PRIVATE KEY BLOCK-----[\s\S]*?-----END PGP PRIVATE KEY BLOCK-----/g
   );
@@ -394,7 +396,7 @@ export async function importKey(email: string, armoredSource: string, passphrase
     // must meet the same floor as a generated key's.
     if (passphrase.length < 12) throw new Error('This key has no passphrase yet. Choose one of at least 12 characters to lock it with.');
     unlocked = parsed;
-    storedArmor = (await openpgp.encryptKey({ privateKey: parsed, passphrase })).armor();
+    storedArmor = (await openpgp.encryptKey({ privateKey: parsed, passphrase, config: lockConfig(lock) })).armor();
   } else {
     try {
       unlocked = await openpgp.decryptKey({ privateKey: parsed, passphrase });
@@ -403,8 +405,9 @@ export async function importKey(email: string, armoredSource: string, passphrase
     }
     // Re-lock with OUR S2K rather than keeping whatever the export used —
     // old gpg exports can carry a far weaker S2K, and the passphrase is in
-    // hand at exactly this moment.
-    storedArmor = (await openpgp.encryptKey({ privateKey: unlocked, passphrase })).armor();
+    // hand at exactly this moment. A host that stores keys server-side
+    // passes 'argon2' (the webmail does; Saavi's local store keeps its default).
+    storedArmor = (await openpgp.encryptKey({ privateKey: unlocked, passphrase, config: lockConfig(lock) })).armor();
   }
   const rec: KeyRecord = {
     publicKey: unlocked.toPublic().armor(),
