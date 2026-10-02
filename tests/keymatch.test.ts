@@ -50,27 +50,27 @@ describe('adoption: a retired key never comes back unasked', () => {
 
   it('plans only real changes, and flags a retired target', () => {
     const plan = planAdoption([
-      { address: 'Me@x.ie', current: NEW, retired: [OLD], target: OLD.toUpperCase(), source: 'published' },
-      { address: 'b@x.ie', current: OLD, retired: [], target: NEW, source: 'keychain' },
-      { address: 'c@x.ie', current: NEW, retired: [], target: NEW, source: 'published' },
-      { address: 'd@x.ie', current: NEW, retired: [], target: null, source: 'published' },
+      { address: 'Me@example.com', current: NEW, retired: [OLD], target: OLD.toUpperCase(), source: 'published' },
+      { address: 'b@example.com', current: OLD, retired: [], target: NEW, source: 'keychain' },
+      { address: 'c@example.com', current: NEW, retired: [], target: NEW, source: 'published' },
+      { address: 'd@example.com', current: NEW, retired: [], target: null, source: 'published' },
     ]);
     expect(plan).toEqual([
-      { address: 'me@x.ie', target: OLD, source: 'published', reactivates: true },
-      { address: 'b@x.ie', target: NEW, source: 'keychain', reactivates: false },
+      { address: 'me@example.com', target: OLD, source: 'published', reactivates: true },
+      { address: 'b@example.com', target: NEW, source: 'keychain', reactivates: false },
     ]);
   });
 
   it('a reactivation is kept only on an explicit yes; ordinary changes pass without asking', async () => {
     const plan = planAdoption([
-      { address: 'me@x.ie', current: NEW, retired: [OLD], target: OLD, source: 'published' },
-      { address: 'b@x.ie', current: OLD, retired: [], target: NEW, source: 'keychain' },
+      { address: 'me@example.com', current: NEW, retired: [OLD], target: OLD, source: 'published' },
+      { address: 'b@example.com', current: OLD, retired: [], target: NEW, source: 'keychain' },
     ]);
     const asked: string[] = [];
     const no = await confirmAdoption(plan, async (s) => { asked.push(s.address); return false; });
-    expect(no).toEqual({ 'b@x.ie': NEW });
-    expect(asked).toEqual(['me@x.ie']);
+    expect(no).toEqual({ 'b@example.com': NEW });
+    expect(asked).toEqual(['me@example.com']);
     const yes = await confirmAdoption(plan, async () => true);
-    expect(yes).toEqual({ 'me@x.ie': OLD, 'b@x.ie': NEW });
+    expect(yes).toEqual({ 'me@example.com': OLD, 'b@example.com': NEW });
   });
 });

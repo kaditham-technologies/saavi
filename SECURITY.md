@@ -221,3 +221,21 @@ system authentication dialog before `dpkg -i` runs. The chain is the same
 one manual verification walks; the app just walks it for you. Every
 installer remains GPG-signed with `SHA256SUMS` + `SHA256SUMS.asc` for
 out-of-band verification, and the browser flow stays as the fallback.
+
+## How changes are reviewed
+
+Every change that touches keys, passphrases, sign-in or the network goes
+through two independent review passes before it ships, and the code comments,
+commit messages and design notes cite their findings by name:
+
+- **argus** — the correctness review: does the code do what it claims, on
+  every path, including failure and concurrency? Findings are numbered
+  (`argus #2`, `A3`).
+- **cerberus** — the adversarial security review: how would an attacker,
+  a compromised server, or a hostile network use this? Findings carry a
+  severity and an ID (`cerberus V1`, `C2`).
+
+A finding is closed only when the fix is in the code, usually with a test that
+pins it; the design notes under `docs/` record what each one was. These are
+internal review passes, not an external audit. If you find something they
+missed, please report it as described above.

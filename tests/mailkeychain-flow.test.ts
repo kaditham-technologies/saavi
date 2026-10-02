@@ -96,8 +96,8 @@ import * as pgp from '../src/pgp';
 
 // ---- fixtures ----
 
-const USER = 'me@x.ie';
-const ALIAS = 'alias@x.ie';
+const USER = 'me@example.com';
+const ALIAS = 'alias@example.com';
 
 async function makeRecord(email: string, passphrase: string): Promise<{ publicKey: string; privateKey: string; created: string }> {
   const { privateKey, publicKey } = await openpgp.generateKey({

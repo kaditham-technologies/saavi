@@ -19,7 +19,7 @@
 // Each leg is compared with `local` and lands in one of five states. A leg
 // that is absent or unreachable is NEVER a mismatch — it is "nothing to
 // compare", said as such. Only a present, different fingerprint differs.
-// Warn only, never block (founder, 2026-10-02).
+// Warn only, never block (product decision, 2026-10-02).
 import * as openpgp from 'openpgp';
 
 export type Leg = 'domain' | 'keychain' | 'vks';

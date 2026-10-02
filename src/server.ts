@@ -5,7 +5,7 @@
 // no network at all and the http capability is scoped to exactly the account
 // paths on mail.kaditham.ie (capabilities/default.json).
 
-/** The one server Saavi signs in to (founder, 2026-10-02): production,
+/** The one server Saavi signs in to (product decision, 2026-10-02): production,
  *  in every build. There is no staging origin anywhere in Saavi — not even
  *  in dev builds — because the password derivation is the same everywhere,
  *  and a binary that can be pointed at a looser server can be made to send

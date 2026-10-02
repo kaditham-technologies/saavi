@@ -13,12 +13,12 @@ const hex = (u8: Uint8Array) => [...u8].map((b) => b.toString(16).padStart(2, '0
 describe('canonicalAddress', () => {
   it('NFC + ASCII lowercase + trim, keeps non-ASCII case untouched', () => {
     expect(canonicalAddress('User@Kaditham.IE ')).toBe('user@kaditham.ie');
-    expect(canonicalAddress('áb@x.ie')).toBe('áb@x.ie'); // NFD → NFC, á survives
+    expect(canonicalAddress('áb@example.com')).toBe('áb@example.com'); // NFD → NFC, á survives
   });
   it('refuses bare logins and junk — a bare login hashes to the wrong salt (C7)', () => {
-    expect(() => canonicalAddress('khree')).toThrow();
+    expect(() => canonicalAddress('jane')).toThrow();
     expect(() => canonicalAddress('')).toThrow();
-    expect(() => canonicalAddress('two@at@x.ie')).toThrow();
+    expect(() => canonicalAddress('two@at@example.com')).toThrow();
     expect(() => canonicalAddress('name@nodot')).toThrow();
   });
 });
@@ -51,14 +51,14 @@ describe('pinned vectors', () => {
       .toBe('ZcS_UYBbNWbsn4unXDg22MgzO57CO56nKXQIjoyHQfg');
   });
   it('authSecret vector 3', async () => {
-    expect(await deriveAuthSecret('pässword-with-twelve', 'khree@kaditham.me'))
-      .toBe('vG9pMb1Nw2RUWsJPmEDGbZm_7CPlFHNKH78YtvEx7U4');
+    expect(await deriveAuthSecret('pässword-with-twelve', 'jane@example.com'))
+      .toBe('d25P6Xe5wfUN7cbWsVIquDc3LwetkKc408swbXzjh9A');
   });
 });
 
 describe('shape and fail-closed', () => {
   it('output always matches the broker-side shape', async () => {
-    const s = await deriveAuthSecret('x'.repeat(12), 'a@b.ie');
+    const s = await deriveAuthSecret('x'.repeat(12), 'a@example.net');
     expect(looksLikeAuthSecret(s)).toBe(true);
     expect(s).toHaveLength(43);
   });
@@ -69,7 +69,7 @@ describe('shape and fail-closed', () => {
     expect(looksLikeAuthSecret('has spaces which never appear in base64url1')).toBe(false);
   });
   it('empty inputs fail closed — no derivation, no fallback', async () => {
-    await expect(deriveAuthSecret('', 'a@b.ie')).rejects.toThrow();
+    await expect(deriveAuthSecret('', 'a@example.net')).rejects.toThrow();
     await expect(deriveAuthSecret('x'.repeat(12), '')).rejects.toThrow();
   });
   it('different addresses give unrelated secrets (salt separation)', async () => {

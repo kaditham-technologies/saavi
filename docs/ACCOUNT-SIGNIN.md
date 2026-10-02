@@ -16,7 +16,7 @@ first time Saavi needs no network and no sign-in to work. Saavi without an
 account is unchanged: the sign-in is an offer on first run, easy to skip, and a
 button at the right of the header afterwards.
 
-## Decisions (founder, 2026-10-02)
+## Decisions (product decision, 2026-10-02)
 
 - **One server, in every build.** Saavi signs in to `https://mail.kaditham.ie`
   and nothing else — no staging origin in source, capability, UI or tests, not

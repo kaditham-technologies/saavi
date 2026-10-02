@@ -263,7 +263,7 @@ export async function resume(): Promise<boolean> {
   return true;
 }
 
-/** Forget the session ON THIS COMPUTER. The keys stay (founder,
+/** Forget the session ON THIS COMPUTER. The keys stay (product decision,
  *  2026-10-02): sealed by this computer's keychain, usable offline.
  *  The refresh token is deleted here but NOT revoked at the server: Stalwart
  *  v0.16 publishes no revocation endpoint (discovery lists none; /auth/revoke

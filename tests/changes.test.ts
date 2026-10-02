@@ -21,10 +21,10 @@ describe('the "changed on another device" banner (argus A1)', () => {
   });
 
   it('the stored baseline only moves forward', () => {
-    writeBaseline('Me@x.ie', 4);
-    writeBaseline('me@x.ie', 2);
-    expect(readBaseline('me@x.ie')).toBe(4);
-    writeBaseline('me@x.ie', 6);
-    expect(readBaseline('ME@x.ie')).toBe(6);
+    writeBaseline('Me@example.com', 4);
+    writeBaseline('me@example.com', 2);
+    expect(readBaseline('me@example.com')).toBe(4);
+    writeBaseline('me@example.com', 6);
+    expect(readBaseline('ME@example.com')).toBe(6);
   });
 });

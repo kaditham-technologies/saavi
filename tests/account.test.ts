@@ -7,7 +7,7 @@ import { setNet, setServerBase } from '../src/server';
 import * as account from '../src/account';
 import { deriveAuthSecret } from '../src/derive';
 
-const USER = 'me@x.ie';
+const USER = 'me@example.com';
 const PASS = 'correct horse battery staple';
 let seen: { url: string; body: string }[] = [];
 let mode: 'ok' | 'mfa' | 'deny' | 'rate' | 'down' | 'oldbroker' = 'ok';
@@ -44,7 +44,7 @@ setNet(async (input, init) => {
   }
   if (path === '/jmap/') {
     const calls = JSON.parse(body).methodCalls as [string][];
-    if (calls[0][0] === 'Identity/get') return json(200, { methodResponses: [['Identity/get', { list: [{ email: 'Me@X.ie' }, { email: 'sales@x.ie' }] }, '0']] });
+    if (calls[0][0] === 'Identity/get') return json(200, { methodResponses: [['Identity/get', { list: [{ email: 'Me@example.com' }, { email: 'sales@example.com' }] }, '0']] });
     return json(200, { methodResponses: [['x:AppPassword/get', { list: [{ description: 'Thunderbird', createdAt: '2026-09-01T00:00:00Z' }, { description: '' }] }, '0']] });
   }
   if (path === '/signup/api/keychain/devices') {
@@ -113,7 +113,7 @@ describe('account reads', () => {
     await account.signIn(USER, PASS, undefined);
     const addrs = await account.addresses();
     expect(addrs.complete).toBe(true);
-    expect(addrs.list.sort()).toEqual(['me@x.ie', 'sales@x.ie']);
+    expect(addrs.list.sort()).toEqual(['me@example.com', 'sales@example.com']);
     expect(seen.some((s) => s.url.startsWith('https://mail.kaditham.ie/jmap/'))).toBe(true);
     expect(seen.some((s) => s.url.includes('stalwart-internal'))).toBe(false);
   });
@@ -122,7 +122,7 @@ describe('account reads', () => {
     await account.signIn(USER, PASS, undefined);
     mode = 'down';
     const addrs = await account.addresses();
-    expect(addrs).toEqual({ list: ['me@x.ie'], complete: false });
+    expect(addrs).toEqual({ list: ['me@example.com'], complete: false });
   });
 
   it('lists app passwords, naming the unnamed', async () => {
