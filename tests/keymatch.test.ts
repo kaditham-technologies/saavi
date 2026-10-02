@@ -1,29 +1,76 @@
 import { describe, expect, it } from 'vitest';
-import { judge } from '../src/keymatch';
+import { assess } from '../src/keymatch';
+import { confirmAdoption, planAdoption } from '../src/adoption';
 
 const A = 'AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555';
 const B = 'ffff1111bbbb2222cccc3333dddd4444eeee5555';
+const a = A.toLowerCase();
+const got = (fpr: string | null) => ({ fpr, reached: true });
+const away = { fpr: null, reached: false };
+const unread = { fpr: null, reached: true, read: false };
 
-describe('the published-key match check', () => {
-  it('matches when every present source agrees, case and spacing aside', () => {
-    expect(judge({ local: A, wkd: A.toLowerCase(), keychain: 'aaaa 1111 bbbb 2222 cccc 3333 dddd 4444 eeee 5555' }))
-      .toEqual({ state: 'match', fingerprint: A.toLowerCase(), checked: ['local', 'wkd', 'keychain'] });
+describe('the key check: what each leg proves', () => {
+  it('consistent when the domain agrees, case and spacing aside', () => {
+    const r = assess({ local: A, domain: got(a), keychain: got('aaaa 1111 bbbb 2222 cccc 3333 dddd 4444 eeee 5555'), vks: got(A) });
+    expect(r.summary).toBe('consistent');
+    expect(r.legs.domain.state).toBe('agrees');
+    expect(r.legs.keychain.state).toBe('agrees');
+    expect(r.independent).toBe('agrees');
   });
 
-  it('names exactly the sources that disagree with this device', () => {
-    expect(judge({ local: A, wkd: B, keychain: A })).toMatchObject({ state: 'mismatch', differing: ['wkd'] });
-    expect(judge({ local: A, wkd: B, keychain: B })).toMatchObject({ state: 'mismatch', differing: ['wkd', 'keychain'] });
+  it('a different key on the domain or in the keychain differs; each leg says which', () => {
+    expect(assess({ local: A, domain: got(B), keychain: got(A), vks: got(null) })).toMatchObject({ summary: 'differs', legs: { domain: { state: 'differs' }, keychain: { state: 'agrees' } } });
+    expect(assess({ local: A, domain: got(A), keychain: got(B), vks: got(null) }).summary).toBe('differs');
   });
 
-  it('a key that is not published is said plainly, not called a mismatch', () => {
-    expect(judge({ local: A, wkd: null, keychain: A })).toEqual({ state: 'unpublished', fingerprint: A.toLowerCase() });
+  it('absent or unreachable is never a mismatch', () => {
+    expect(assess({ local: A, domain: got(null), keychain: got(A), vks: away }).summary).toBe('unpublished');
+    expect(assess({ local: A, domain: away, keychain: got(A), vks: got(null) }).summary).toBe('unchecked');
+    const r = assess({ local: A, domain: got(A), keychain: unread, vks: away });
+    expect(r.summary).toBe('consistent');
+    expect(r.legs.keychain.state).toBe('not-read');
+    expect(r.independent).toBe('unreachable');
   });
 
-  it('without a local key there is nothing this device can vouch for', () => {
-    expect(judge({ local: null, wkd: A, keychain: A })).toEqual({ state: 'unknown' });
+  it('keys.openpgp.org is independent evidence: it never changes the summary', () => {
+    const differsThere = assess({ local: A, domain: got(A), keychain: got(A), vks: got(B) });
+    expect(differsThere.summary).toBe('consistent');
+    expect(differsThere.independent).toBe('differs');
+    expect(assess({ local: A, domain: got(B), keychain: got(A), vks: got(A) }).summary).toBe('differs');
   });
 
-  it('matches on two sources when the keychain was not read this session', () => {
-    expect(judge({ local: A, wkd: A, keychain: null })).toMatchObject({ state: 'match', checked: ['local', 'wkd'] });
+  it('without a local key there is nothing this computer can vouch for', () => {
+    expect(assess({ local: null, domain: got(A), keychain: got(A), vks: got(A) }).summary).toBe('no-local-key');
+  });
+});
+
+describe('adoption: a retired key never comes back unasked', () => {
+  const OLD = 'cccc0000cccc0000cccc0000cccc0000cccc0000';
+  const NEW = 'dddd0000dddd0000dddd0000dddd0000dddd0000';
+
+  it('plans only real changes, and flags a retired target', () => {
+    const plan = planAdoption([
+      { address: 'Me@x.ie', current: NEW, retired: [OLD], target: OLD.toUpperCase(), source: 'published' },
+      { address: 'b@x.ie', current: OLD, retired: [], target: NEW, source: 'keychain' },
+      { address: 'c@x.ie', current: NEW, retired: [], target: NEW, source: 'published' },
+      { address: 'd@x.ie', current: NEW, retired: [], target: null, source: 'published' },
+    ]);
+    expect(plan).toEqual([
+      { address: 'me@x.ie', target: OLD, source: 'published', reactivates: true },
+      { address: 'b@x.ie', target: NEW, source: 'keychain', reactivates: false },
+    ]);
+  });
+
+  it('a reactivation is kept only on an explicit yes; ordinary changes pass without asking', async () => {
+    const plan = planAdoption([
+      { address: 'me@x.ie', current: NEW, retired: [OLD], target: OLD, source: 'published' },
+      { address: 'b@x.ie', current: OLD, retired: [], target: NEW, source: 'keychain' },
+    ]);
+    const asked: string[] = [];
+    const no = await confirmAdoption(plan, async (s) => { asked.push(s.address); return false; });
+    expect(no).toEqual({ 'b@x.ie': NEW });
+    expect(asked).toEqual(['me@x.ie']);
+    const yes = await confirmAdoption(plan, async () => true);
+    expect(yes).toEqual({ 'me@x.ie': OLD, 'b@x.ie': NEW });
   });
 });

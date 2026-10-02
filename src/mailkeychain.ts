@@ -407,6 +407,26 @@ function readMarker(username: string): Marker | null {
 export function knownVersion(username: string): number | null {
   return readMarker(username)?.version ?? null;
 }
+
+/** Record that this device has seen keychain version `version` and holds
+ *  nothing it needs from it — the "every key is already here" restore
+ *  outcome (argus A1). Bumps ONLY the marker's version, and only when the
+ *  local rings still hash to what the marker recorded and cover the same
+ *  addresses: no key material is adopted, and a device whose rings changed
+ *  since its last sync keeps its old version (so its next push still merges).
+ *  True when the marker moved. */
+export async function acceptVersion(username: string, addresses: string[], version: number): Promise<boolean> {
+  const marker = readMarker(username);
+  if (!marker || version <= marker.version) return false;
+  const rings = await collectLocalRings(addresses);
+  const emails = Object.keys(rings);
+  const same = emails.length === marker.emails.length && emails.every((e) => marker.emails.includes(e));
+  if (!same) return false;
+  const hash = await sha256(JSON.stringify({ rings, envelopes: localEnvelopes(username) }));
+  if (hash !== marker.hash) return false;
+  writeMarker(username, { ...marker, version });
+  return true;
+}
 function writeMarker(username: string, m: Marker): void {
   localStorage.setItem(markerKey(username), JSON.stringify(m));
 }

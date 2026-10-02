@@ -515,3 +515,34 @@ describe('no rollback of the active key (2026-09-30 v6)', () => {
     expect(await fprOf(JSON.parse(ringOn(USER)!).active)).toBe(await fprOf(cur));
   });
 });
+
+describe('acceptVersion (argus A1: "every key is already here" is not a change)', () => {
+  it('moves the marker version when the local rings are what it recorded — and adopts nothing', async () => {
+    const mine = await makeRecord(USER, 'pass one');
+    store.set('saavi-ring-' + USER, JSON.stringify({ active: mine, retired: [] }));
+    await expect(keychain.sync(USER, [USER])).resolves.toBe('pushed');
+    expect(keychain.knownVersion(USER)).toBe(1);
+    const ringBefore = ringOn(USER);
+    await expect(keychain.acceptVersion(USER, [USER], 4)).resolves.toBe(true);
+    expect(keychain.knownVersion(USER)).toBe(4);
+    expect(ringOn(USER)).toBe(ringBefore);
+    // Never backwards.
+    await expect(keychain.acceptVersion(USER, [USER], 2)).resolves.toBe(false);
+    expect(keychain.knownVersion(USER)).toBe(4);
+  });
+
+  it('stays put when the local rings changed since the marker (the next push must still merge)', async () => {
+    const mine = await makeRecord(USER, 'pass one');
+    store.set('saavi-ring-' + USER, JSON.stringify({ active: mine, retired: [] }));
+    await keychain.sync(USER, [USER]);
+    const newer = await makeRecord(USER, 'pass one');
+    store.set('saavi-ring-' + USER, JSON.stringify({ active: newer, retired: [mine] }));
+    await expect(keychain.acceptVersion(USER, [USER], 7)).resolves.toBe(false);
+    expect(keychain.knownVersion(USER)).toBe(1);
+  });
+
+  it('without a marker there is nothing to move (the UI keeps its own baseline)', async () => {
+    await expect(keychain.acceptVersion(USER, [USER], 3)).resolves.toBe(false);
+    expect(keychain.knownVersion(USER)).toBeNull();
+  });
+});

@@ -358,14 +358,21 @@ const acct = (s: JmapSession, cap: string): string => s.primaryAccounts[cap] ?? 
 
 /** Every address this account may hold keys for: the login and its send-as
  *  identities (the broker's accountAddressSet rule). */
-export async function addresses(): Promise<string[]> {
+export interface AddressSet { list: string[]; complete: boolean }
+/** `complete: false` when the send-as identities could not be read: the list
+ *  then holds only the login address, and restore/sync must SAY so rather
+ *  than act on a subset silently (argus A4). */
+export async function addresses(): Promise<AddressSet> {
   const out = new Set<string>([session!.address]);
   try {
     const s = await jmapSession();
     const rs = await jmapCall([['Identity/get', { accountId: acct(s, SUBMISSION), properties: ['email'] }, '0']], [CORE, SUBMISSION]);
+    if (rs[0]?.[0] !== 'Identity/get') return { list: [...out], complete: false };
     for (const i of rs[0]?.[1]?.list ?? []) if (typeof i.email === 'string') out.add(i.email.trim().toLowerCase());
-  } catch { /* the login address alone is still right */ }
-  return [...out];
+    return { list: [...out], complete: true };
+  } catch {
+    return { list: [...out], complete: false };
+  }
 }
 
 export interface AppPassword { description: string; createdAt: string | null }

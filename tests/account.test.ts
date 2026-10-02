@@ -112,9 +112,17 @@ describe('account reads', () => {
   it('rewrites the JMAP apiUrl onto the public origin and lists identities', async () => {
     await account.signIn(USER, PASS, undefined);
     const addrs = await account.addresses();
-    expect(addrs.sort()).toEqual(['me@x.ie', 'sales@x.ie']);
+    expect(addrs.complete).toBe(true);
+    expect(addrs.list.sort()).toEqual(['me@x.ie', 'sales@x.ie']);
     expect(seen.some((s) => s.url.startsWith('https://mail.kaditham.ie/jmap/'))).toBe(true);
     expect(seen.some((s) => s.url.includes('stalwart-internal'))).toBe(false);
+  });
+
+  it('says when the alias list could not be read, instead of a quiet subset (argus A4)', async () => {
+    await account.signIn(USER, PASS, undefined);
+    mode = 'down';
+    const addrs = await account.addresses();
+    expect(addrs).toEqual({ list: ['me@x.ie'], complete: false });
   });
 
   it('lists app passwords, naming the unnamed', async () => {

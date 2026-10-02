@@ -1,33 +1,76 @@
-// The published-key match check (0.6.0, docs/ACCOUNT-SIGNIN.md, pillar 1).
-// Three sources for one address's current key:
-//   local    — the key unlocked on THIS device (public half derived from the
-//              private half on install — the only source Saavi trusts);
-//   wkd      — what the address publishes; what everyone else seals to;
-//   keychain — the active key the account keychain holds, fingerprinted from
-//              its PRIVATE half (a blob's public half is never believed).
-// All present and equal: match. Any present pair differs: mismatch — WARN
-// only (founder 2026-10-02): a rotation may still be propagating, and the
-// customer may know why. Fingerprints are compared as lowercase hex.
+// What Saavi can honestly say about an address's key (0.6.0; design in
+// docs/ACCOUNT-SIGNIN.md, "The key check"). Four vantage points, each
+// proving one thing and no more:
+//
+//   local     the key this computer holds and opened. The reference: its
+//             public half is derived from the private half on install, so
+//             no server chose it.
+//   domain    what <domain> served THIS computer just now over WKD. Proves
+//             what the domain answered here; it cannot prove that everyone
+//             else is served the same key.
+//   keychain  the active key in the account keychain, fingerprinted from
+//             its PRIVATE half (a blob's public half is never believed).
+//             Proves what your other devices will treat as current.
+//   vks       keys.openpgp.org — a directory Kaditham does not run, holding
+//             only keys whose owner confirmed the address by mail. An
+//             independent vantage point: agreement there is evidence the
+//             domain is not quietly serving a different key to you.
+//
+// Each leg is compared with `local` and lands in one of five states. A leg
+// that is absent or unreachable is NEVER a mismatch — it is "nothing to
+// compare", said as such. Only a present, different fingerprint differs.
+// Warn only, never block (founder, 2026-10-02).
 import * as openpgp from 'openpgp';
 
-export type Source = 'local' | 'wkd' | 'keychain';
-export interface Sources { local: string | null; wkd: string | null; keychain: string | null }
-export type Verdict =
-  | { state: 'match'; fingerprint: string; checked: Source[] }
-  | { state: 'mismatch'; differing: Source[]; sources: Sources }
-  | { state: 'unpublished'; fingerprint: string }   // local (and keychain) agree; nothing on WKD
-  | { state: 'unknown' };                           // nothing local to compare
+export type Leg = 'domain' | 'keychain' | 'vks';
+export type LegState = 'agrees' | 'differs' | 'absent' | 'unreachable' | 'not-read';
 
-const norm = (f: string | null): string | null => (f ? f.replace(/\s+/g, '').toLowerCase() : null);
+/** What was fetched for one leg. `fpr` null with `reached` true = the leg
+ *  answered and holds no key for the address. `read: false` = not asked. */
+export interface LegInput { fpr: string | null; reached: boolean; read?: boolean }
 
-export function judge(s: Sources): Verdict {
-  const v: Sources = { local: norm(s.local), wkd: norm(s.wkd), keychain: norm(s.keychain) };
-  if (!v.local) return { state: 'unknown' };
-  const present = (Object.keys(v) as Source[]).filter((k) => v[k]);
-  const differing = present.filter((k) => v[k] !== v.local);
-  if (differing.length) return { state: 'mismatch', differing, sources: v };
-  if (!v.wkd) return { state: 'unpublished', fingerprint: v.local };
-  return { state: 'match', fingerprint: v.local, checked: present };
+export interface LegResult { state: LegState; fpr: string | null }
+
+export type Summary =
+  | 'consistent'     // the domain agrees; the keychain agrees or was not read
+  | 'differs'        // the domain or the keychain holds a different key
+  | 'unpublished'    // the domain answered: no key for this address
+  | 'unchecked'      // the domain could not be reached
+  | 'no-local-key';  // nothing on this computer to compare against
+
+export interface Assessment {
+  local: string | null;
+  legs: Record<Leg, LegResult>;
+  summary: Summary;
+  /** keys.openpgp.org, read separately: it never changes `summary` — it adds
+   *  (or withholds) independent evidence beside it. */
+  independent: LegState;
+}
+
+const norm = (f: string | null | undefined): string | null => (f ? f.replace(/\s+/g, '').toLowerCase() : null);
+
+function legState(local: string | null, leg: LegInput): LegResult {
+  if (leg.read === false) return { state: 'not-read', fpr: null };
+  if (!leg.reached) return { state: 'unreachable', fpr: null };
+  const f = norm(leg.fpr);
+  if (!f) return { state: 'absent', fpr: null };
+  return { state: f === local ? 'agrees' : 'differs', fpr: f };
+}
+
+export function assess(input: { local: string | null; domain: LegInput; keychain: LegInput; vks: LegInput }): Assessment {
+  const local = norm(input.local);
+  const legs: Record<Leg, LegResult> = {
+    domain: legState(local, input.domain),
+    keychain: legState(local, input.keychain),
+    vks: legState(local, input.vks),
+  };
+  if (!local) return { local, legs, summary: 'no-local-key', independent: legs.vks.state };
+  let summary: Summary;
+  if (legs.domain.state === 'differs' || legs.keychain.state === 'differs') summary = 'differs';
+  else if (legs.domain.state === 'unreachable') summary = 'unchecked';
+  else if (legs.domain.state === 'absent') summary = 'unpublished';
+  else summary = 'consistent';
+  return { local, legs, summary, independent: legs.vks.state };
 }
 
 /** The fingerprint a locked private key really has. */
