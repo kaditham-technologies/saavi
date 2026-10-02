@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-10-02
 
 - **Sign in with Kaditham Mail, and your keys come with you.** On a new
   computer, sign in with your Kaditham Mail address and password — and the
