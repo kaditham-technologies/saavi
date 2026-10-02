@@ -13,15 +13,20 @@
   unlocks the keys. Saavi without an account is unchanged: the sign-in is
   offered once on first start (one click to skip) and lives at the right of
   the header afterwards.
-- **You can see the server did not swap your key.** After signing in, the
-  account panel compares, for each of your addresses, the key unlocked on
-  this computer, the key your address publishes (what everyone else's mail
-  app seals to), and the key your account keychain holds — read from its
-  private half, never from what the server says the public half is. When
-  they agree it says so with the fingerprint; when they do not, it says
-  which one differs and what that could mean. It warns rather than blocks:
-  a key changed a minute ago on another device looks exactly like this
-  until the published copy catches up.
+- **See your key as others see it.** For each of your addresses, the account
+  panel compares the key on this computer with three other views: what your
+  domain published to this computer just now, what your account keychain
+  holds (read from its private half, never from what a server says the
+  public half is), and keys.openpgp.org — a directory Kaditham does not run,
+  as an independent check. Each view says what it found and what that does
+  and does not prove; a view that is missing or unreachable is reported as
+  that, never as a mismatch. A real disagreement is shown loudly, with both
+  readings — a change still on its way, or something to take seriously —
+  and never blocks you from sealing.
+- **A key you retired never comes back by itself.** If anything — your
+  domain's published key, or your keychain — names a key this computer has
+  retired as the current one, Saavi stops and asks, explaining why that can
+  happen, and keeps your current key unless you say otherwise.
 - **Every wait says what it is doing, and every failure says what to do.**
   Checking your password, signing in, fetching your keychain, unlocking each
   key, sealing them to this computer, checking your published key — each
@@ -40,9 +45,14 @@
   changed elsewhere (one small request, at most once a minute). If it did,
   a banner offers to bring the change here, and nothing is adopted until
   your password has proved every key. If the published key has not caught
-  up with the new one yet, Saavi shows you both and lets you choose.
+  up with the new one yet, Saavi shows you both and lets you choose. Once
+  answered, the same change never asks again; and if a first restore failed
+  or was skipped, Bring keys here in the panel tries again.
 - **Signing out keeps your keys.** They are yours and sealed by this
-  computer's keychain; signing out forgets only the session. A key you make
+  computer's keychain; signing out ends the session on this computer only.
+  The mail server offers no way to cancel a session remotely, so to end
+  every session everywhere, change your password. Your password itself is
+  held only for the moment an operation needs it, then forgotten. A key you make
   or import for one of your account's addresses offers to back itself up —
   re-locked under your account password first, so the webmail and your
   other devices open it too.
@@ -51,6 +61,11 @@
   reject about one in 120 of the generator's own six-word phrases, because
   the word list contains eleven such words. It now only refuses when the
   common word is most of the passphrase.
+- **Saavi talks to exactly one mail server, and redirects cannot widen
+  that.** Sign-in reaches mail.kaditham.ie and nothing else, and every
+  network request now has each redirect checked against Saavi's allowed
+  list (tauri-plugin-http 2.7), so a server cannot bounce a request
+  somewhere Saavi was never allowed to go.
 - **Security update:** rustls 0.23.45 (RUSTSEC-2026-0285, the TLS 1.3
   handshake boundary fix), used by the update check and key lookups.
 
