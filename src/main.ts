@@ -19,6 +19,7 @@ import { vksLookup, vksLookupKeyId, vksUpload, vksRequestVerify } from './vks';
 import { ask, confirmBox, notice } from './ui';
 import { generatePassphrase, passphraseBits, describeStrength, gatePassword } from './passphrase';
 import * as update from './update';
+import { initAccountUi, keysChanged } from './accountui';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
@@ -1192,6 +1193,7 @@ $('modal-form').addEventListener('submit', async (e) => {
         if (!EMAIL_RE.test(email)) throw new Error('Give the address this key belongs to.');
         await pgp.importKey(email, src, pass);
         $('modal').hidden = true;
+        void keysChanged(email, pass);
       }
     } else {
       const email = ($('m-email') as HTMLInputElement).value.trim().toLowerCase();
@@ -1219,6 +1221,7 @@ $('modal-form').addEventListener('submit', async (e) => {
         }
         doneFor = { kind: 'saavi', ref: email };
         showDone(await pgp.fingerprintOf(rec.publicKey), '');
+        void keysChanged(email, pass);
       }
     }
     void refreshKeys();
@@ -1953,6 +1956,13 @@ void (async () => {
   void refreshKeys();
   void detectGpg();
   void wireDragDrop();
+  // Sign in with Kaditham Mail (0.6.0): the header button, the first-run
+  // offer and the focus-time keychain check. Needs the store settled first.
+  void initAccountUi({
+    refreshKeys: () => void refreshKeys(),
+    flush: async () => { await diskHandle?.flushNow(); },
+    status,
+  });
   // Persistence is write-behind now, so closing must wait for the mirror:
   // kill the window mid-flush and a just-generated key would exist nowhere.
   if (keychain.inShell()) {

@@ -566,3 +566,70 @@ body.theme-phosphor {
   .tab.on { box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent) 30%, transparent); }
   .bar { border-bottom-color: color-mix(in oklch, var(--accent) 22%, var(--hairline)); }
 }
+
+/* ============ Kaditham Mail account (0.6.0) ============ */
+.acct-btn {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  font: inherit; font-size: 12.5px; font-weight: 600; position: relative;
+  border: 1px solid var(--border); background: var(--card); color: var(--ink-2);
+  border-radius: 99px; padding: 4px 12px 4px 12px; max-width: 240px;
+  transition: border-color .15s var(--ease-out), color .15s var(--ease-out);
+}
+.acct-btn:hover { border-color: var(--accent); color: var(--accent); }
+.acct-btn.signed { padding-left: 4px; }
+.acct-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-dot {
+  display: inline-grid; place-items: center; flex: none;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 700;
+}
+.acct-dot.big { width: 38px; height: 38px; font-size: 16px; }
+.acct-alert { position: absolute; top: -2px; right: -2px; width: 9px; height: 9px; border-radius: 50%; background: #d97706; box-shadow: 0 0 0 2px var(--paper-2); }
+
+.acct-card { width: min(480px, 100%); }
+.acct-wide { width: min(620px, 100%); }
+.acct-form { display: flex; flex-direction: column; gap: 12px; }
+.acct-adv summary { cursor: pointer; font-size: 12.5px; color: var(--ink-3); }
+.acct-adv select { margin-top: 6px; }
+
+/* Narrated steps: every wait says what it is doing. The spinner turns on
+   the compositor (transform only), so it keeps moving while a key
+   derivation holds the main thread. */
+.acct-steps { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
+.acct-steps li { display: grid; grid-template-columns: 18px 1fr; column-gap: 9px; align-items: center; color: var(--ink-3); }
+.acct-step-note { grid-column: 2; font-size: 12px; color: var(--ink-3); }
+.acct-step-note:empty { display: none; }
+.acct-step-mark { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--border); justify-self: center; }
+.acct-steps li.active { color: var(--ink); font-weight: 600; }
+.acct-steps li.active .acct-step-mark { border-color: var(--accent); border-right-color: transparent; animation: acct-spin .8s linear infinite; will-change: transform; }
+.acct-steps li.done { color: var(--ink-2); }
+.acct-steps li.done .acct-step-mark { border-color: #15803d; background: #15803d; box-shadow: inset 0 0 0 3px var(--card); }
+.acct-steps li.fail { color: #c0392b; font-weight: 600; }
+.acct-steps li.fail .acct-step-mark { border-color: #c0392b; background: #c0392b; box-shadow: inset 0 0 0 3px var(--card); }
+.acct-steps li.skip { color: var(--ink-3); }
+.acct-steps li.skip .acct-step-mark { border-style: dashed; }
+@keyframes acct-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .acct-steps li.active .acct-step-mark { animation-duration: 2.4s; } }
+
+.acct-who { display: flex; align-items: center; gap: 12px; }
+.acct-who b { font-size: 15px; }
+.acct-sec { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--hairline); padding-top: 12px; }
+.acct-sec h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+.acct-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.acct-list { list-style: none; padding: 0; display: flex; flex-direction: column; }
+.acct-list li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--hairline); font-size: 13px; }
+.acct-list li:last-child { border-bottom: none; }
+
+.acct-match { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: var(--paper-2); border: 1px solid var(--hairline); }
+.acct-match.ok { border-color: color-mix(in srgb, #15803d 35%, var(--hairline)); }
+.acct-match.warn { border-color: #d97706; background: color-mix(in srgb, #d97706 10%, var(--card)); }
+.acct-match-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.acct-match .fpr { margin: 0; }
+.acct-badge { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 99px; background: var(--card); color: var(--ink-2); border: 1px solid var(--border); }
+.acct-badge.ok { color: #15803d; border-color: color-mix(in srgb, #15803d 40%, var(--border)); }
+.acct-badge.warn { color: #b45309; border-color: #d97706; }
+.acct-odd { color: #b45309; font-weight: 700; }
+.acct-sec > .mini { align-self: flex-start; }
+.acct-info { color: var(--accent); font-weight: 600; }
+.acct-change { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 12px; border-radius: 10px; border: 1px solid #d97706; background: color-mix(in srgb, #d97706 8%, var(--card)); }
+.acct-banner .ub-dot { background: #d97706; }
