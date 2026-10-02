@@ -7,7 +7,6 @@ import * as account from './account';
 import { SignInError } from './account';
 import * as mk from './mailkeychain';
 import * as pgp from './pgp';
-import { SERVERS } from './server';
 import { wkdProbe } from './wkd';
 import { judge, privateFpr, publicFpr, showFpr, type Verdict } from './keymatch';
 import { ask, confirmBox } from './ui';
@@ -155,12 +154,6 @@ function showSignIn(prefill = ''): void {
     const code = mk1('Two-factor code', 'text', 'one-time-code');
     code.input.inputMode = 'numeric';
     code.wrap.hidden = true;
-    const adv = el('details', 'acct-adv');
-    const advSum = el('summary', undefined, 'Server');
-    const pick = el('select');
-    for (const s of SERVERS) { const o = el('option', undefined, new URL(s).host); o.value = s; pick.append(o); }
-    pick.value = account.server();
-    adv.append(advSum, pick, el('span', 'hint', ' mail.kaditham.me is the staging server the team tests on.'));
     const err = el('p', 'error');
     err.setAttribute('role', 'alert');
     err.hidden = true;
@@ -180,7 +173,7 @@ function showSignIn(prefill = ''): void {
     const go = el('button', 'primary', 'Sign in');
     go.type = 'submit';
     acts.append(cancel, go);
-    form.append(addr.wrap, pass.wrap, code.wrap, adv, steps.ol, err, acts);
+    form.append(addr.wrap, pass.wrap, code.wrap, steps.ol, err, acts);
     card.append(form);
 
     const fail = (msg: string, info = false): void => { err.textContent = msg; err.className = info ? 'hint acct-info' : 'error'; err.hidden = false; };
@@ -192,11 +185,10 @@ function showSignIn(prefill = ''): void {
       void (async () => {
         card.classList.add('busy');
         go.disabled = true; cancel.disabled = true;
-        for (const i of [addr.input, pass.input, code.input, pick]) i.disabled = true;
+        for (const i of [addr.input, pass.input, code.input]) i.disabled = true;
         steps.ol.hidden = false;
         try {
           await account.signIn(addr.input.value, pass.input.value, code.wrap.hidden ? undefined : code.input.value, {
-            server: pick.value,
             step: (s) => {
               if (s === 'deriving') steps.set('derive', 'active');
               else { steps.set('derive', 'done'); steps.set('auth', 'active', `Signing in to ${host()}`); }
@@ -210,7 +202,7 @@ function showSignIn(prefill = ''): void {
         } catch (e) {
           card.classList.remove('busy');
           go.disabled = false; cancel.disabled = false;
-          for (const i of [addr.input, pass.input, code.input, pick]) i.disabled = false;
+          for (const i of [addr.input, pass.input, code.input]) i.disabled = false;
           if (e instanceof SignInError) {
             steps.set('derive', 'done');
             if (e.kind === 'needs-code') {

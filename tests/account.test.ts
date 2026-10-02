@@ -84,8 +84,9 @@ describe('sign in', () => {
     expect(seen).toHaveLength(0);
   });
 
-  it('only ever talks to the two Kaditham mail servers', () => {
+  it('only ever talks to mail.kaditham.ie', () => {
     expect(() => setServerBase('https://evil.example')).toThrow();
+    expect(() => setServerBase('https://mail.kaditham.me')).toThrow();
   });
 
   it('sign-out forgets the session and the secrets', async () => {

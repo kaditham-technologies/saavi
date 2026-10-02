@@ -3,31 +3,42 @@
 // server.ts with the same two exports (same-origin fetch there); this one
 // routes through the shell's Rust http client, because the page's CSP allows
 // no network at all and the http capability is scoped to exactly the account
-// paths on these two hosts (capabilities/default.json).
+// paths on mail.kaditham.ie (capabilities/default.json).
 
-/** The servers Saavi will sign in to. Production, and the staging twin the
- *  team tests against. Anything else is refused rather than trusted. */
-export const SERVERS = ['https://mail.kaditham.ie', 'https://mail.kaditham.me'] as const;
-export type Server = typeof SERVERS[number];
+/** The one server Saavi signs in to (founder, 2026-10-02): production,
+ *  in every build. There is no staging origin anywhere in Saavi — not even
+ *  in dev builds — because the password derivation is the same everywhere,
+ *  and a binary that can be pointed at a looser server can be made to send
+ *  a production password there (cerberus C1). UI previews in the dev server
+ *  use a faked server inside the page, never the network. */
+export const PRODUCTION = 'https://mail.kaditham.ie';
+export const SERVERS: readonly string[] = [PRODUCTION];
 
-let base: Server = SERVERS[0];
+let base: string = PRODUCTION;
 
-export function serverBase(): Server { return base; }
+export function serverBase(): string { return base; }
 
-/** Point at one of the known servers (the sign-in screen's choice, or the
- *  origin a stored session belongs to). */
-export function setServerBase(origin: string): void {
+/** The known server an origin names, or a refusal. */
+export function knownServer(origin: string): string {
   const o = new URL(origin).origin;
   const hit = SERVERS.find((s) => s === o);
   if (!hit) throw new Error(`Saavi only signs in to ${SERVERS.join(' or ')}.`);
-  base = hit;
+  return hit;
 }
 
-/** Resolve an API path against the server origin. An absolute URL is only
- *  accepted when it is on that same origin (JMAP hands us absolute apiUrls). */
-export function apiUrl(path: string): string {
-  const u = new URL(path, base);
-  if (u.origin !== base) throw new Error('Refusing a request off the mail server.');
+/** Point at one of the known servers (after a successful sign-in, or the
+ *  origin a stored session belongs to). */
+export function setServerBase(origin: string): void {
+  base = knownServer(origin);
+}
+
+/** Resolve an API path against a known server origin (the current one by
+ *  default). An absolute URL is only accepted on that same origin (JMAP
+ *  hands us absolute apiUrls). */
+export function apiUrl(path: string, on: string = base): string {
+  const origin = knownServer(on);
+  const u = new URL(path, origin);
+  if (u.origin !== origin) throw new Error('Refusing a request off the mail server.');
   return u.toString();
 }
 

@@ -102,10 +102,9 @@ export type Step = 'deriving' | 'signing-in' | 'code';
  * account has two-factor on and no code was given — call again with it.
  */
 export async function signIn(addr: string, pass: string, code: string | undefined,
-  opts: { server?: string; step?: (s: Step) => void } = {}): Promise<void> {
+  opts: { step?: (s: Step) => void } = {}): Promise<void> {
   const who = addr.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(who)) throw new SignInError('denied', 'Enter your full Kaditham Mail address, like you@yourcompany.ie.');
-  if (opts.server) setServerBase(opts.server);
   opts.step?.('deriving');
   await painted();
   let secret: string;
