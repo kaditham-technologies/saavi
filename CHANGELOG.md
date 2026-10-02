@@ -1,27 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- **Signing back in starts clean.** When the server ended a session by
-  itself — rather than you pressing Sign out — the "changed on another
-  device" dot and the last account's key check could linger into the next
-  sign-in. Every way of being signed out now clears them, and a fresh sign-in
-  that has just brought your keys clears the banner too.
-- **An offline moment no longer hides the banner.** If the check for changes
-  from your other devices gets no answer, the banner keeps showing what the
-  last real answer said instead of disappearing until the next one.
-- **A sign-out during a sign-in wins.** The guard that stops a late sign-in
-  from bringing a session back is now taken when the sign-in starts, not
-  half-way through.
-- **Destructive choices are never the default.** In a confirmation that would
-  do something irreversible, the keyboard focus starts on Cancel, so Enter
-  alone cannot confirm it. Closing a dialog also stops listening for its
-  Escape key, which it previously kept doing.
-- **Opening a key elsewhere must hand back exactly that key.** When a host
-  app opens keys in a background worker, the result must now match the
-  locked key in every part — subkeys, user IDs, signatures — and be fully
-  unlocked, rather than merely share its primary fingerprint.
-
 ## 0.6.0 — 2026-10-02
 
 - **Sign in with Kaditham Mail, and your keys come with you.** On a new
@@ -94,6 +72,15 @@
 Honest limits: the device list is what each device calls itself; it shows
 that a device exists, not that it is honest. Pairing two devices with a QR
 code, and revoking a device, are the next release's work.
+
+- **Destructive choices are never the default.** In a confirmation that
+  would do something irreversible, keyboard focus starts on Cancel, so Enter
+  alone cannot confirm it.
+- **For apps that build on Saavi's core:** a host may now open locked keys
+  off the UI thread (Kaditham Mail runs Argon2 in a worker, so a phone no
+  longer freezes while a key opens). Whatever the host hands back must be
+  exactly the key that was locked — every subkey, user ID and signature —
+  and fully unlocked, or it is refused.
 
 ## 0.5.1 — 2026-09-01
 

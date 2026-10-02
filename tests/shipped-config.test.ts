@@ -47,7 +47,7 @@ describe('the shell http client', () => {
     const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
     expect(conf.plugins.http).toEqual({ scopeRedirects: true });
     const lock = read('src-tauri/Cargo.lock');
-    const m = lock.match(/name = "tauri-plugin-http"\nversion = "(\d+)\.(\d+)\.(\d+)"/);
+    const m = lock.match(/name = "tauri-plugin-http"\r?\nversion = "(\d+)\.(\d+)\.(\d+)"/);
     expect(m).not.toBeNull();
     const [maj, min] = [Number(m![1]), Number(m![2])];
     expect(maj > 2 || (maj === 2 && min >= 7)).toBe(true);
