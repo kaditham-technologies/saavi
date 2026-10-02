@@ -545,6 +545,12 @@ export async function importKey(
  * is checked to be the key that was asked for before anything trusts it.
  * Default: open in this thread, exactly as before.
  */
+function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 export type KeyOpener = (lockedArmor: string, passphrase: string) => Promise<string>;
 let keyOpener: KeyOpener | null = null;
 export function useKeyOpener(fn: KeyOpener | null): void { keyOpener = fn; }
@@ -554,9 +560,11 @@ export async function openLockedKey(lockedArmor: string, passphrase: string): Pr
   const locked = await openpgp.readPrivateKey({ armoredKey: lockedArmor });
   if (!keyOpener) return openpgp.decryptKey({ privateKey: locked, passphrase });
   const opened = await openpgp.readPrivateKey({ armoredKey: await keyOpener(lockedArmor, passphrase) });
-  if (!opened.isDecrypted() || opened.getFingerprint() !== locked.getFingerprint()) {
-    throw new Error('The key opener returned a different key.');
-  }
+  // Exactly the key that was locked — every subkey, user ID and signature —
+  // and every part of it unlocked (isDecrypted() alone means "some part").
+  const same = equalBytes(opened.toPublic().write(), locked.toPublic().write());
+  const whole = opened.getKeys().every((k) => k.keyPacket.isDecrypted());
+  if (!same || !whole) throw new Error('The key opener returned a different key.');
   return opened;
 }
 

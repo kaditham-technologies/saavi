@@ -107,6 +107,8 @@ export type Step = 'deriving' | 'signing-in' | 'code';
  */
 export async function signIn(addr: string, pass: string, code: string | undefined,
   opts: { step?: (s: Step) => void } = {}): Promise<void> {
+  // Taken first: a sign-out at any point during this sign-in wins.
+  const mine = epoch;
   const who = addr.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(who)) throw new SignInError('denied', 'Enter your full Kaditham Mail address, like you@yourcompany.ie.');
   opts.step?.('deriving');
@@ -163,7 +165,6 @@ export async function signIn(addr: string, pass: string, code: string | undefine
     });
   } catch (e) { throw offline(e); }
   if (!t.ok) throw new SignInError('server', 'The mail server did not complete the sign-in. Try again in a moment.');
-  const mine = epoch;
   const tok = await t.json();
   if (mine !== epoch) throw new SignInError('server', 'Signed out while signing in.');
   adopt(who, tok);

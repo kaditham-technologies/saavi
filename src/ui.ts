@@ -108,7 +108,7 @@ export function ask(o: AskOptions): Promise<Record<string, string> | null> {
     const done = (v: Record<string, string> | null): void => {
       veil.remove();
       if (open?.el === veil) open = null;
-      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown', onKey, true);   // added in capture; removed the same way
       resolve(v);
     };
     const onKey = (e: KeyboardEvent): void => {
@@ -122,7 +122,9 @@ export function ask(o: AskOptions): Promise<Record<string, string> | null> {
     document.addEventListener('keydown', onKey, true);
     document.body.append(veil);
     open = { el: veil, cancel: () => done(null) };
-    const first = card.querySelector<HTMLElement>('input, select') ?? ok;
+    // A destructive choice is never the default: with no field to fill,
+    // Enter must not confirm it — focus Cancel instead.
+    const first = card.querySelector<HTMLElement>('input, select') ?? (o.danger && !cancel.hidden ? cancel : ok);
     first.focus();
   });
 }

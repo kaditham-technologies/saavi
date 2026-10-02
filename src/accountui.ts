@@ -26,6 +26,8 @@ let hooks: Hooks;
  *  match check. Memory only; it is ciphertext either way. */
 let lastBlob: string | null = null;
 let remoteNewer: number | null = null;
+/** The key check's last result, per address (the panel draws it). */
+let checks: AddrCheck[] = [];
 const OFFER_KEY = 'saavi-account-offer';
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -73,6 +75,10 @@ function renderButton(): void {
     btn.append(el('span', 'acct-dot', a[0].toUpperCase()), el('span', 'acct-name', a));
     btn.title = `Signed in to Kaditham Mail as ${a}`;
   } else {
+    // Signed out by any road — the button, or the server refusing the
+    // grant — nothing of the last account may linger: no alert, no blob,
+    // no key check drawn from it.
+    remoteNewer = null; lastBlob = null; checks = [];
     btn.append(el('span', undefined, 'Sign in'));
     btn.title = 'Sign in with Kaditham Mail — bring your mail keys to this computer';
   }
@@ -199,6 +205,7 @@ function showSignIn(prefill = ''): void {
           });
           steps.set('auth', 'done', `Signed in to ${host()}`);
           try { await bringKeys(steps.set, pass.input.value); } finally { account.forgetSecrets(); }
+          remoteNewer = null;   // a fresh sign-in has just brought the keys
           card.classList.remove('busy');
           closeCard();
           void showPanel();
@@ -371,7 +378,6 @@ async function wkdFpr(address: string): Promise<string | null> {
 // --------------------------------------------------------- the key check
 
 interface AddrCheck { address: string; a: Assessment }
-let checks: AddrCheck[] = [];
 
 async function computeChecks(addrs: string[]): Promise<AddrCheck[]> {
   let parsed: ReturnType<typeof mk.parseBlob> | null = null;
@@ -727,6 +733,9 @@ async function focusCheck(): Promise<void> {
       const user = account.address()!;
       const v = await account.keychainVersion();
       if (!account.signedIn() || account.address() !== user) return;
+      // No answer (offline, a 5xx) says nothing about the keychain: keep
+      // whatever the last real answer showed.
+      if (v === null) return;
       const d = decideBanner(v, mk.knownVersion(user), readBaseline(user));
       if (d.baseline !== null) writeBaseline(user, d.baseline);
       remoteNewer = d.banner;

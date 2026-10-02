@@ -487,6 +487,27 @@ describe('the key opener (S2K off the UI thread)', () => {
     } finally { pgp.useKeyOpener(null); }
   });
 
+  it('refuses a different key even when it comes back unlocked', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    const other = await openpgp.generateKey({ userIDs: [{ email: 'other@example.com' }], format: 'object' });
+    pgp.useKeyOpener(async () => other.privateKey.armor());   // unlocked, wrong key
+    try {
+      await expect(pgp.unlockPrivateKey(ME, PASS)).rejects.toThrow(/different key/);
+    } finally { pgp.useKeyOpener(null); }
+  });
+
+  it('refuses the right key with something added to it', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    pgp.useKeyOpener(async (armor, pass) => {
+      const k = await openpgp.decryptKey({ privateKey: await openpgp.readPrivateKey({ armoredKey: armor }), passphrase: pass });
+      return (await k.addSubkey()).armor();   // same primary fingerprint, one subkey more
+    });
+    try {
+      await expect(pgp.unlockPrivateKey(ME, PASS)).rejects.toThrow(/different key/);
+      expect(pgp.isUnlocked(ME)).toBe(false);
+    } finally { pgp.useKeyOpener(null); }
+  });
+
   it('passes a wrong passphrase through as the library error', async () => {
     await pgp.generateKeys(ME, 'Me', PASS);
     pgp.useKeyOpener(inThread);
