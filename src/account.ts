@@ -14,6 +14,7 @@ import { apiUrl, netFetch, serverBase, setServerBase, SERVERS } from './server';
 import * as mk from './mailkeychain';
 
 export const CLIENT_ID = 'kaditham-saavi';
+export const RATE_LIMITED = 'Too many attempts — wait a few minutes, then try again.';
 const RENEW_MARGIN = 120_000;
 const TIMEOUT = 20_000;
 
@@ -40,7 +41,10 @@ let session: Session | null = null;
 // This session only (P6 proof + ring lock). Null after a resume.
 let accountSecret: string | null = null;
 let password: string | null = null;
-let refreshing: Promise<boolean> | null = null;
+let refreshing: Promise<RefreshOutcome> | null = null;
+// Bumped by signOut: any refresh/resume that started before it must not
+// write a session back afterwards (argus A6).
+let epoch = 0;
 const listeners = new Set<() => void>();
 
 export function onChange(fn: () => void): () => void { listeners.add(fn); return () => listeners.delete(fn); }
@@ -130,8 +134,8 @@ export async function signIn(addr: string, pass: string, code: string | undefine
     });
   } catch (e) { throw offline(e); }
   if (r.status === 429) {
-    const said = await r.json().then((j) => (typeof j?.error === 'string' ? j.error : '')).catch(() => '');
-    throw new SignInError('rate', said || 'Too many attempts — wait a minute and try again.');
+    // Fixed copy: the server's own words are not shown (hardening, cerberus).
+    throw new SignInError('rate', RATE_LIMITED);
   }
   if (r.status === 401 || r.status === 403) {
     throw code
@@ -159,11 +163,22 @@ export async function signIn(addr: string, pass: string, code: string | undefine
     });
   } catch (e) { throw offline(e); }
   if (!t.ok) throw new SignInError('server', 'The mail server did not complete the sign-in. Try again in a moment.');
-  adopt(who, await t.json());
+  const mine = epoch;
+  const tok = await t.json();
+  if (mine !== epoch) throw new SignInError('server', 'Signed out while signing in.');
+  adopt(who, tok);
   accountSecret = secret;
   password = pass;
   await persist();
   changed();
+}
+
+/** Drop the password and the account secret from memory. Called after every
+ *  operation that needed them (restore, push, adoption): the next one asks
+ *  again. Status, the device list and app passwords need neither. */
+export function forgetSecrets(): void {
+  accountSecret = null;
+  password = null;
 }
 
 /** Hand the password back to a resumed session (restore/sync need it).
@@ -178,25 +193,46 @@ export async function provideSecrets(pass: string): Promise<void> {
 /** The password, for the ring proof. Null on a resumed session. */
 export const ringSecret = (): string | null => password;
 
-async function doRefresh(): Promise<boolean> {
-  const rt = session?.refresh;
-  if (!rt) return false;
+/** What a refresh answer means (argus A3). Only the server REFUSING the
+ *  grant ends a session — 400 (invalid_grant), 401, 403. A 5xx, a 429 or
+ *  no answer at all is the server or the network having a bad moment: the
+ *  session stays and the next call tries again. */
+export type RefreshOutcome = 'ok' | 'ended' | 'unavailable';
+export function classifyRefresh(status: number | null): RefreshOutcome {
+  if (status === null) return 'unavailable';
+  if (status >= 200 && status < 300) return 'ok';
+  if (status === 400 || status === 401 || status === 403) return 'ended';
+  return 'unavailable';
+}
+
+async function refreshWith(rt: string): Promise<{ outcome: RefreshOutcome; body: unknown }> {
   const r = await netFetch(apiUrl('/auth/token'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: rt, client_id: CLIENT_ID }),
     signal: AbortSignal.timeout(TIMEOUT),
   }).catch(() => null);
-  if (!r?.ok || !session) return false;
-  adopt(session.address, await r.json());
+  const outcome = classifyRefresh(r ? r.status : null);
+  return { outcome, body: outcome === 'ok' ? await r!.json().catch(() => null) : null };
+}
+
+async function doRefresh(): Promise<RefreshOutcome> {
+  const rt = session?.refresh;
+  if (!rt) return 'ended';
+  const mine = epoch;
+  const { outcome, body } = await refreshWith(rt);
+  if (mine !== epoch || !session) return 'ended';            // signed out meanwhile
+  if (outcome === 'ended') { await signOut(); return 'ended'; }
+  if (outcome === 'unavailable' || !body) return 'unavailable';
+  adopt(session.address, body as Parameters<typeof adopt>[1]);
   await persist();
-  return true;
+  return 'ok';
 }
 
 /** Make sure the access token has life left; single-flight. */
-export async function ensureFresh(): Promise<boolean> {
-  if (!session) return false;
-  if (Date.now() < session.expiresAt - RENEW_MARGIN) return true;
+export async function ensureFresh(): Promise<RefreshOutcome> {
+  if (!session) return 'ended';
+  if (session.access && Date.now() < session.expiresAt - RENEW_MARGIN) return 'ok';
   refreshing ??= doRefresh().finally(() => { refreshing = null; });
   return refreshing;
 }
@@ -214,30 +250,38 @@ export async function resume(): Promise<boolean> {
   if (rec?.v !== 1 || typeof rec.refresh !== 'string' || typeof rec.address !== 'string') return false;
   if (!SERVERS.some((s) => s === rec.server)) return false;
   setServerBase(rec.server);
+  const mine = epoch;
   session = { address: rec.address, access: '', expiresAt: 0, refresh: rec.refresh };
-  const r = await netFetch(apiUrl('/auth/token'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: rec.refresh, client_id: CLIENT_ID }),
-    signal: AbortSignal.timeout(TIMEOUT),
-  }).catch(() => null);
-  if (r === null) { changed(); return true; }       // offline: keep the session, try later
-  if (!r.ok) { await signOut(); return false; }     // refused: the session is over
-  adopt(rec.address, await r.json());
-  await persist();
-  changed();
+  const { outcome, body } = await refreshWith(rec.refresh);
+  if (mine !== epoch) return false;                          // signed out meanwhile
+  if (outcome === 'ended') { await signOut(); return false; } // refused: the session is over
+  if (outcome === 'ok' && body) {
+    adopt(rec.address, body as Parameters<typeof adopt>[1]);
+    await persist();
+  }
+  changed();                                                 // ok, or offline/5xx: keep it, retry later
   return true;
 }
 
-/** Forget the session. The keys stay on this device (founder, 2026-10-02):
- *  they are sealed by this computer's keychain and remain usable offline. */
+/** Forget the session ON THIS COMPUTER. The keys stay (founder,
+ *  2026-10-02): sealed by this computer's keychain, usable offline.
+ *  The refresh token is deleted here but NOT revoked at the server: Stalwart
+ *  v0.16 publishes no revocation endpoint (discovery lists none; /auth/revoke
+ *  is 404 — probed 2026-10-02). A copied token keeps working until it
+ *  expires or the password changes; changing the password is what ends
+ *  sessions everywhere. */
 export async function signOut(): Promise<void> {
+  epoch++;
+  refreshing = null;
   session = null;
   accountSecret = null;
   password = null;
   if (inShell()) { try { await invoke('account_session_delete'); } catch { /* nothing stored */ } }
   changed();
 }
+
+/** Tests only: make the access token look expired. */
+export function _expireForTest(): void { if (session) session.expiresAt = 0; }
 
 export function header(): string {
   if (!session?.access) throw new Error('Not signed in.');
@@ -260,14 +304,30 @@ export function deviceLabel(): string {
 interface JmapSession { apiUrl: string; primaryAccounts: Record<string, string>; accounts: Record<string, unknown> }
 let jmap: { s: JmapSession; for: string } | null = null;
 
+const SESSION_ENDED = 'Your Kaditham Mail session has ended on this computer — sign in again. Your keys are still here.';
+const SERVER_AWAY = 'The mail server is not answering right now — try again in a moment. Your keys keep working offline.';
+
+/** Before a keychain call (mailkeychain uses the bearer as-is): make the
+ *  session fresh, or say plainly why not — ended vs. server away. */
+export async function ready(): Promise<void> {
+  const f = await ensureFresh();
+  if (f === 'ended') throw new SignInError('denied', SESSION_ENDED);
+  if (f === 'unavailable') throw new SignInError('offline', SERVER_AWAY);
+}
+
 async function authed(path: string, init: RequestInit = {}): Promise<Response> {
-  if (!(await ensureFresh())) throw new SignInError('denied', 'Your session has ended — sign in again.');
+  const fresh = await ensureFresh();
+  if (fresh === 'ended') throw new SignInError('denied', SESSION_ENDED);
+  if (fresh === 'unavailable') throw new SignInError('offline', SERVER_AWAY);
   const go = () => netFetch(apiUrl(path), { ...init, headers: { ...(init.headers ?? {}), Authorization: header() }, signal: AbortSignal.timeout(TIMEOUT) });
   let r: Response;
   try { r = await go(); } catch (e) { throw offline(e); }
   if (r.status === 401 && session) {
     session.expiresAt = 0;
-    if (await ensureFresh()) { try { r = await go(); } catch (e) { throw offline(e); } }
+    const again = await ensureFresh();
+    if (again === 'ended') throw new SignInError('denied', SESSION_ENDED);
+    if (again === 'unavailable') throw new SignInError('offline', SERVER_AWAY);
+    try { r = await go(); } catch (e) { throw offline(e); }
   }
   return r;
 }
@@ -343,7 +403,7 @@ function deviceIdHint(): string {
 
 /** The cheap status read (version only) — the focus-time change check. */
 export async function keychainVersion(): Promise<number | null> {
-  if (!(await ensureFresh())) return null;
+  if ((await ensureFresh()) !== 'ok') return null;
   const st = await mk.status().catch(() => null);
   return st && st.exists ? st.version : st ? 0 : null;
 }

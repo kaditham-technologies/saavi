@@ -11,6 +11,8 @@ const USER = 'me@x.ie';
 const PASS = 'correct horse battery staple';
 let seen: { url: string; body: string }[] = [];
 let mode: 'ok' | 'mfa' | 'deny' | 'rate' | 'down' | 'oldbroker' = 'ok';
+let tokenStatus = 200;
+let tokenGate: Promise<void> | null = null;
 
 const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -30,7 +32,13 @@ setNet(async (input, init) => {
     if (mode === 'mfa' && p.mfaToken !== '123456') return json(200, { type: 'mfaRequired' });
     return json(200, { type: 'authenticated', client_code: 'C' });
   }
-  if (path === '/auth/token') return json(200, { access_token: 'AT', refresh_token: 'RT', expires_in: 3600 });
+  if (path === '/auth/token') {
+    if (body.includes('grant_type=refresh_token')) {
+      if (tokenGate) await tokenGate;
+      if (tokenStatus !== 200) return json(tokenStatus, { error: 'x' });
+    }
+    return json(200, { access_token: 'AT', refresh_token: 'RT', expires_in: 3600 });
+  }
   if (path === '/.well-known/jmap') {
     return json(200, { apiUrl: 'http://stalwart-internal:8080/jmap/', primaryAccounts: { 'urn:ietf:params:jmap:submission': 'a', 'urn:stalwart:jmap': 'a' }, accounts: { a: {} } });
   }
@@ -49,6 +57,8 @@ setNet(async (input, init) => {
 beforeEach(async () => {
   seen = [];
   mode = 'ok';
+  tokenStatus = 200;
+  tokenGate = null;
   await account.signOut();
   setServerBase('https://mail.kaditham.ie');
 });
@@ -74,7 +84,8 @@ describe('sign in', () => {
     await expect(account.signIn(USER, 'nope', undefined)).rejects.toMatchObject({ kind: 'denied' });
     await expect(account.signIn(USER, 'nope', '000000')).rejects.toMatchObject({ kind: 'code-denied' });
     mode = 'rate';
-    await expect(account.signIn(USER, PASS, undefined)).rejects.toMatchObject({ kind: 'rate', message: 'Too many attempts — wait 2 minutes.' });
+    // Fixed copy — the server's own words are never shown.
+    await expect(account.signIn(USER, PASS, undefined)).rejects.toMatchObject({ kind: 'rate', message: account.RATE_LIMITED });
     mode = 'down';
     await expect(account.signIn(USER, PASS, undefined)).rejects.toMatchObject({ kind: 'offline' });
   });
@@ -117,5 +128,52 @@ describe('account reads', () => {
     expect((await account.devices())?.[0]).toMatchObject({ label: 'Saavi on Linux', current: true });
     mode = 'oldbroker';
     expect(await account.devices()).toBeNull();
+  });
+});
+
+describe('refresh: only a refused grant ends the session (argus A3)', () => {
+  it('classifies answers', () => {
+    expect(account.classifyRefresh(200)).toBe('ok');
+    for (const s of [400, 401, 403]) expect(account.classifyRefresh(s)).toBe('ended');
+    for (const s of [429, 500, 502, 503]) expect(account.classifyRefresh(s)).toBe('unavailable');
+    expect(account.classifyRefresh(null)).toBe('unavailable');
+  });
+
+  it('a 5xx keeps the session and says the server is away — never "ended"', async () => {
+    await account.signIn(USER, PASS, undefined);
+    account._expireForTest();
+    tokenStatus = 503;
+    await expect(account.ready()).rejects.toMatchObject({ kind: 'offline' });
+    expect(account.signedIn()).toBe(true);
+    tokenStatus = 200;
+    await expect(account.ready()).resolves.toBeUndefined();
+  });
+
+  it('a refused grant ends it', async () => {
+    await account.signIn(USER, PASS, undefined);
+    account._expireForTest();
+    tokenStatus = 400;
+    await expect(account.ready()).rejects.toMatchObject({ kind: 'denied' });
+    expect(account.signedIn()).toBe(false);
+  });
+
+  it('signing out while a refresh is in flight does not bring the session back (argus A6)', async () => {
+    await account.signIn(USER, PASS, undefined);
+    account._expireForTest();
+    let open!: () => void;
+    tokenGate = new Promise((r) => { open = r; });
+    const pending = account.ensureFresh();
+    await account.signOut();
+    open();
+    expect(await pending).toBe('ended');
+    expect(account.signedIn()).toBe(false);
+  });
+
+  it('forgetSecrets drops the password but keeps the session', async () => {
+    await account.signIn(USER, PASS, undefined);
+    account.forgetSecrets();
+    expect(account.signedIn()).toBe(true);
+    expect(account.hasSecrets()).toBe(false);
+    expect(account.ringSecret()).toBeNull();
   });
 });
