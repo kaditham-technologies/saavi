@@ -121,6 +121,53 @@ pub async fn keychain_delete(fingerprint: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+// The Kaditham Mail session (0.6.0, docs/ACCOUNT-SIGNIN.md): the refresh
+// token, the address and the server origin, as one small JSON string the
+// frontend owns. It lives here — beside the store secret — and never in
+// webview storage. It cannot open the keychain on its own: the keychain's
+// proof needs the password, which is only ever held in memory.
+const ACCOUNT_SLOT: &str = "account:v1";
+const ACCOUNT_MAX: usize = 8192;
+
+fn account_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(SERVICE, ACCOUNT_SLOT).map_err(|e| format!("Keychain unavailable: {e}"))
+}
+
+#[tauri::command]
+pub async fn account_session_get() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| match account_entry()?.get_password() {
+        Ok(p) => Ok(Some(p)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("Keychain read failed: {e}")),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn account_session_set(session: String) -> Result<(), String> {
+    if session.len() > ACCOUNT_MAX {
+        return Err("Session record too large.".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        account_entry()?
+            .set_password(&session)
+            .map_err(|e| format!("Keychain write failed: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn account_session_delete() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(|| match account_entry()?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!("Keychain delete failed: {e}")),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

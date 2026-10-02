@@ -92,7 +92,7 @@ describe('parseBlob', () => {
       rings: { 'a@x.ie': { active: { ...rec('k1'), evil: 'x', __proto__: { polluted: true } }, retired: [] } },
     });
     const out = parseBlob(poisoned);
-    expect((out.rings['a@x.ie'].active as Record<string, unknown>).evil).toBeUndefined();
+    expect((out.rings['a@x.ie'].active as unknown as Record<string, unknown>).evil).toBeUndefined();
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 });

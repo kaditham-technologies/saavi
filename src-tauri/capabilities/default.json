@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Saavi main window: open/save dialogs (the chosen paths are scoped by the dialog itself), text + binary file read/write for backups and sealed files, opening the download page in the browser, and the one-click updater (download is signature-verified against the key baked into this binary; install happens only on the user's click). The Rust-side http client is scoped to exactly what the app needs — WKD paths on any domain, keys.openpgp.org, the Kaditham WKD publish endpoint, and the update manifest + release assets — so compromised frontend code gets no arbitrary-host exfiltration channel.",
+  "description": "Saavi main window: open/save dialogs (the chosen paths are scoped by the dialog itself), text + binary file read/write for backups and sealed files, opening the download page in the browser, and the one-click updater (download is signature-verified against the key baked into this binary; install happens only on the user's click). The Rust-side http client is scoped to exactly what the app needs — WKD paths on any domain, keys.openpgp.org, the Kaditham WKD publish endpoint, the Kaditham Mail sign-in, JMAP and keychain paths on mail.kaditham.ie and its staging twin mail.kaditham.me (0.6.0 — exact paths, no wildcard), and the update manifest + release assets — so compromised frontend code gets no arbitrary-host exfiltration channel.",
   "windows": [
     "main"
   ],
@@ -19,21 +19,83 @@
     "updater:default",
     {
       "identifier": "fs:allow-mkdir",
-      "allow": [{ "path": "$TEMP/saavi-update" }]
+      "allow": [
+        {
+          "path": "$TEMP/saavi-update"
+        }
+      ]
     },
     {
       "identifier": "fs:allow-write-file",
-      "allow": [{ "path": "$TEMP/saavi-update/saavi-update.deb" }]
+      "allow": [
+        {
+          "path": "$TEMP/saavi-update/saavi-update.deb"
+        }
+      ]
     },
     {
       "identifier": "http:default",
       "allow": [
-        { "url": "https://*/.well-known/openpgpkey/**" },
-        { "url": "https://keys.openpgp.org/**" },
-        { "url": "https://kaditham.ie/wp-content/uploads/saavi/**" },
-        { "url": "https://mail.kaditham.ie/signup/api/wkd/publish" },
-        { "url": "https://github.com/kaditham-technologies/saavi/releases/download/**" },
-        { "url": "https://objects.githubusercontent.com/**" }
+        {
+          "url": "https://*/.well-known/openpgpkey/**"
+        },
+        {
+          "url": "https://keys.openpgp.org/**"
+        },
+        {
+          "url": "https://kaditham.ie/wp-content/uploads/saavi/**"
+        },
+        {
+          "url": "https://mail.kaditham.ie/signup/api/wkd/publish"
+        },
+        {
+          "url": "https://github.com/kaditham-technologies/saavi/releases/download/**"
+        },
+        {
+          "url": "https://objects.githubusercontent.com/**"
+        },
+        {
+          "url": "https://mail.kaditham.ie/api/auth"
+        },
+        {
+          "url": "https://mail.kaditham.ie/auth/token"
+        },
+        {
+          "url": "https://mail.kaditham.ie/.well-known/jmap"
+        },
+        {
+          "url": "https://mail.kaditham.ie/jmap/"
+        },
+        {
+          "url": "https://mail.kaditham.ie/signup/api/keychain"
+        },
+        {
+          "url": "https://mail.kaditham.ie/signup/api/keychain/fetch"
+        },
+        {
+          "url": "https://mail.kaditham.ie/signup/api/keychain/devices"
+        },
+        {
+          "url": "https://mail.kaditham.me/api/auth"
+        },
+        {
+          "url": "https://mail.kaditham.me/auth/token"
+        },
+        {
+          "url": "https://mail.kaditham.me/.well-known/jmap"
+        },
+        {
+          "url": "https://mail.kaditham.me/jmap/"
+        },
+        {
+          "url": "https://mail.kaditham.me/signup/api/keychain"
+        },
+        {
+          "url": "https://mail.kaditham.me/signup/api/keychain/fetch"
+        },
+        {
+          "url": "https://mail.kaditham.me/signup/api/keychain/devices"
+        }
       ]
     }
   ]

@@ -402,6 +402,11 @@ function readMarker(username: string): Marker | null {
       : null;
   } catch { return null; }
 }
+/** The keychain version this device last pushed or accepted for the
+ *  account — what a focus-time status check compares against. */
+export function knownVersion(username: string): number | null {
+  return readMarker(username)?.version ?? null;
+}
 function writeMarker(username: string, m: Marker): void {
   localStorage.setItem(markerKey(username), JSON.stringify(m));
 }
