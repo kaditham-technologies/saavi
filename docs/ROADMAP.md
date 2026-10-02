@@ -11,8 +11,10 @@ Ordered by intent, not promise.
    Sequoia: no second OpenPGP implementation, no reading gpg's private
    store). Remaining: key editing (expiry, UIDs, trust signatures),
    smartcard status, and a "which key signs my git commits" view.
-4. **Kaditham Mail pairing** — sign in to publish keys to the directory
-   and WKD, and sync identities.
+4. ~~**Kaditham Mail pairing**~~ — shipped in 0.6.0 as sign in with
+   Kaditham Mail: keychain restore and sync, the published-key match check,
+   the device list (docs/ACCOUNT-SIGNIN.md). Remaining: QR device pairing
+   (KEY-SYNC S2, 0.7.0), device revocation and pin sync (S3).
 5. **Post-quantum hybrids** — ML-KEM/ML-DSA composite keys once
    OpenPGP.js ships draft-ietf-openpgp-pqc; in-app rotation as the
    migration path.

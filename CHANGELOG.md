@@ -1,5 +1,63 @@
 # Changelog
 
+## Unreleased
+
+- **Sign in with Kaditham Mail, and your keys come with you.** On a new
+  computer, sign in with your Kaditham Mail address and password — and the
+  six-digit code, if two-factor is on — and the encryption keys you already
+  use in the webmail arrive: the current key and every older one, so old
+  sealed mail opens here too. They are written into the sealed key store
+  0.5.0 introduced, so after that first time Saavi needs no network and no
+  sign-in to seal, open or sign. Your password never leaves the computer —
+  only a value derived from it is sent, and the password itself is what
+  unlocks the keys. Saavi without an account is unchanged: the sign-in is
+  offered once on first start (one click to skip) and lives at the right of
+  the header afterwards.
+- **You can see the server did not swap your key.** After signing in, the
+  account panel compares, for each of your addresses, the key unlocked on
+  this computer, the key your address publishes (what everyone else's mail
+  app seals to), and the key your account keychain holds — read from its
+  private half, never from what the server says the public half is. When
+  they agree it says so with the fingerprint; when they do not, it says
+  which one differs and what that could mean. It warns rather than blocks:
+  a key changed a minute ago on another device looks exactly like this
+  until the published copy catches up.
+- **Every wait says what it is doing, and every failure says what to do.**
+  Checking your password, signing in, fetching your keychain, unlocking each
+  key, sealing them to this computer, checking your published key — each
+  step is shown as it runs. A wrong password, a wrong or stale code, too many
+  attempts, no network, an account with no keychain yet, a key still locked
+  with an older passphrase (asked for, key by key), or a damaged keychain
+  (nothing installed, nothing lost) each get their own words.
+- **Where your keys live.** The panel lists the devices that have downloaded
+  your keychain in the last 90 days, with when they were first and last
+  seen and this computer marked, and the app passwords your mail apps use.
+  Each download from a new device was already announced by email; now you
+  can see the whole list in one place. Removing a device needs a new key to
+  mean anything and arrives in a later release.
+- **Changes from your other devices arrive — but never by themselves.** When
+  you bring Saavi to the front, it asks your account whether the keychain
+  changed elsewhere (one small request, at most once a minute). If it did,
+  a banner offers to bring the change here, and nothing is adopted until
+  your password has proved every key. If the published key has not caught
+  up with the new one yet, Saavi shows you both and lets you choose.
+- **Signing out keeps your keys.** They are yours and sealed by this
+  computer's keychain; signing out forgets only the session. A key you make
+  or import for one of your account's addresses offers to back itself up —
+  re-locked under your account password first, so the webmail and your
+  other devices open it too.
+- **Suggested passphrases are never refused by Saavi's own floor.** The
+  strength check that rejects passwords built on a very common word used to
+  reject about one in 120 of the generator's own six-word phrases, because
+  the word list contains eleven such words. It now only refuses when the
+  common word is most of the passphrase.
+- **Security update:** rustls 0.23.45 (RUSTSEC-2026-0285, the TLS 1.3
+  handshake boundary fix), used by the update check and key lookups.
+
+Honest limits: the device list is what each device calls itself; it shows
+that a device exists, not that it is honest. Pairing two devices with a QR
+code, and revoking a device, are the next release's work.
+
 ## 0.5.1 — 2026-09-01
 
 - **The close button works again.** 0.5.0's "wait for keys to reach disk

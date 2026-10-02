@@ -15,7 +15,7 @@ should get a CHANGELOG line.
       keychain-sealed store Saavi owns, served to paired clients over a
       loopback interface. Would be Saavi's first inbound surface — review it as
       such. Plan: `docs/KEY-AGENT.md`.
-- [ ] **The update check runs once, at launch.** No timer and no re-check on
+- [x] **The update check runs once, at launch.** (Fixed in 0.4.4: hourly and on window focus.) No timer and no re-check on
       focus, so an app left open never learns a release exists (observed on
       Linux, 0.4.2, the day 0.4.3 shipped). Give it the contract the webmail
       already has: hourly, plus on window focus, sharing one in-flight latch.
