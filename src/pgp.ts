@@ -288,6 +288,81 @@ export async function generateKeys(
   return rec;
 }
 
+/**
+ * One key for two addresses (2026-10-01): give `fromEmail`'s ACTIVE key a
+ * user ID for `toEmail` too, and make it `toEmail`'s active key. Same key
+ * material, same fingerprint — reformatKey re-signs the user IDs and keeps
+ * the key packets and their creation time — so everything already sealed
+ * to it still opens, and a lookup for either address now finds it (every
+ * lookup here insists the key NAME the address). `toEmail`'s previous keys
+ * all stay on its ring as retired — nothing is dropped, so the keychain's
+ * no-shrink guard and older letters are both safe. `fromEmail`'s ring is
+ * left exactly as it is. `passphrase` must open the key; the new armor is
+ * locked with it.
+ *
+ * Nothing is saved until `commit()`: the caller publishes the new public
+ * key first, so a failed publish leaves this device as it was and the
+ * offer can simply be tried again.
+ */
+export async function shareKeyWithAddress(
+  fromEmail: string, toEmail: string, passphrase: string, lock: LockStyle = 'legacy'
+): Promise<{ rec: KeyRecord; commit: () => void }> {
+  const from = load(fromEmail);
+  if (!from) throw new Error(`There is no key for ${fromEmail} on this device.`);
+  const target = toEmail.trim().toLowerCase();
+  let unlocked: openpgp.PrivateKey;
+  try {
+    unlocked = await openpgp.decryptKey({
+      privateKey: await openpgp.readPrivateKey({ armoredKey: from.active.privateKey }), passphrase,
+    });
+  } catch (e) {
+    throw unlockError(e, passphrase);
+  }
+  const fpr = unlocked.getFingerprint();
+  const ring = load(target);
+  if (ring && (await rawFingerprint(ring.active)) === fpr) throw new Error(`${target} already uses this key.`);
+  // reformatKey re-signs every user ID it is given and drops the old
+  // signatures — a revoked key or user ID would come back valid. Refuse the
+  // one, leave out the other.
+  if (await unlocked.isRevoked()) throw new Error(`The key for ${fromEmail} is revoked — it cannot take on another address.`);
+  const have: openpgp.UserIDPacket[] = [];
+  for (const u of unlocked.users) {
+    if (!u.userID) continue;
+    // verify() throws for a revoked (or never validly self-signed) user ID.
+    if (!(await u.verify().then(() => true, () => false))) continue;
+    have.push(u.userID);
+  }
+  const userIDs = have.map((u) => ({ name: u.name, email: u.email, comment: u.comment }));
+  if (!have.some((u) => (u.email ?? '').toLowerCase() === target)) {
+    userIDs.push({ name: have[0]?.name || target, email: target, comment: '' });
+  }
+  // …and it sets no expiry unless told: carry the key's own.
+  const expires = await unlocked.getExpirationTime();
+  const keyExpirationTime = expires instanceof Date
+    ? Math.max(1, Math.round((expires.getTime() - unlocked.getCreationTime().getTime()) / 1000)) : 0;
+  const { privateKey: reformatted } = await openpgp.reformatKey({ privateKey: unlocked, userIDs, keyExpirationTime, format: 'object' });
+  if (reformatted.getFingerprint() !== fpr) throw new Error('Adding the address changed the key — nothing was saved.');
+  const pool = ring ? [ring.active, ...ring.retired] : [];
+  const rec: KeyRecord = {
+    publicKey: reformatted.toPublic().armor(),
+    privateKey: (await openpgp.encryptKey({ privateKey: reformatted, passphrase, config: lockConfig(lock) })).armor(),
+    created: unlocked.getCreationTime().toISOString(),
+    // Above every lock this ring has seen, so a merge that weighs locks of
+    // one key (A1) puts this armor in front.
+    lockEpoch: pool.reduce((m, r) => Math.max(m, r.lockEpoch ?? 0), 0) + 1,
+    ...(from.active.revocationCertificate ? { revocationCertificate: from.active.revocationCertificate } : {}),
+  };
+  return {
+    rec,
+    commit: () => {
+      save(target, { active: rec, retired: pool });
+      sessionKeys.set(fpr, reformatted);
+      activeSessionFpr = fpr;
+      activeByEmail.set(target, fpr);
+    },
+  };
+}
+
 /** Re-lock a private armor under a new passphrase — the password-change,
  *  fold-in and override moves of the split design. Verifies the old
  *  passphrase by actually unlocking (never re-arms an armor it cannot
@@ -321,6 +396,23 @@ export async function relockActive(
   return true;
 }
 
+/** Why a key would not open, in words that tell the cases apart. The bare
+ *  "does not unlock" hid two other causes behind one message: a pasted
+ *  passphrase carrying a space or line break at either end, and a key the
+ *  library cannot open at all (a lock format it does not read). OpenPGP.js
+ *  reports an AEAD tag mismatch as "Incorrect key passphrase" too, so its
+ *  own words ride along in brackets for the one reading the report. */
+export function unlockError(e: unknown, passphrase: string): Error {
+  const why = e instanceof Error ? e.message : String(e);
+  // decryptKey wraps the packet's words: "Error decrypting private key: …"
+  const m = /Incorrect key passphrase(?::\s*(.+))?/.exec(why);
+  if (!m) return new Error(`This key could not be opened here (${why}).`);
+  const padded = passphrase !== passphrase.trim();
+  return new Error('That passphrase does not unlock this key.'
+    + (padded ? ' It starts or ends with a space or line break — check what was pasted.' : '')
+    + (m[1] ? ` (${m[1]})` : ''));
+}
+
 /** Additive re-lock of the ACTIVE key from the SESSION's unlocked copy —
  *  the fold-in's path (webmail docs/ZERO-ACCESS.md M6): a ring already
  *  open in this session re-locks under a new secret without the old
@@ -352,8 +444,8 @@ export async function relockArmor(
   let unlocked: openpgp.PrivateKey;
   try {
     unlocked = parsed.isDecrypted() ? parsed : await openpgp.decryptKey({ privateKey: parsed, passphrase: oldPassphrase });
-  } catch {
-    throw new Error('That passphrase does not unlock this key.');
+  } catch (e) {
+    throw unlockError(e, oldPassphrase);
   }
   return (await openpgp.encryptKey({ privateKey: unlocked, passphrase: newPassphrase, config: lockConfig(lock) })).armor();
 }
@@ -400,8 +492,8 @@ export async function importKey(
   } else {
     try {
       unlocked = await openpgp.decryptKey({ privateKey: parsed, passphrase });
-    } catch {
-      throw new Error('That passphrase does not unlock this key.');
+    } catch (e) {
+      throw unlockError(e, passphrase);
     }
     // Re-lock with OUR S2K rather than keeping whatever the export used —
     // old gpg exports can carry a far weaker S2K, and the passphrase is in
@@ -673,6 +765,32 @@ export async function neededKeyFor(email: string, armored: string): Promise<KeyI
     }
   }
   return null;
+}
+
+/** The key IDs a message is sealed to, formatted (4-char groups) — so a
+ *  letter no key here opens can at least NAME the key it wants. Hidden
+ *  recipients (all-zero IDs) are left out: they name nobody. */
+export async function encryptionKeyIds(armored: string): Promise<string[]> {
+  try {
+    const message = await openpgp.readMessage({ armoredMessage: armored.trim() });
+    return message.getEncryptionKeyIDs().map((id) => id.toHex()).filter((h) => !isWildcardKeyId(h)).map(fmtFpr);
+  } catch {
+    return [];
+  }
+}
+
+/** A public key's own key IDs — primary and every subkey, hex upper — and
+ *  its primary fingerprint's last 8 hex, the short name the UI uses. */
+export async function keyIdsOf(armoredPublicKey: string): Promise<{ ids: string[]; short: string } | null> {
+  try {
+    const key = await openpgp.readKey({ armoredKey: armoredPublicKey });
+    return {
+      ids: key.getKeys().map((k) => k.getKeyID().toHex().toUpperCase()),
+      short: key.getFingerprint().toUpperCase().slice(-8),
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Every key on the ring, active first — for the settings manager. */
