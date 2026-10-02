@@ -461,3 +461,37 @@ describe('relockActive (additive re-lock, the password-change move)', () => {
     expect(await pgp.relockActive('nobody@example.org', PASS, 'x'.repeat(14))).toBe(false);
   });
 });
+
+describe('the key opener (S2K off the UI thread)', () => {
+  const inThread = async (armor: string, pass: string) =>
+    (await openpgp.decryptKey({ privateKey: await openpgp.readPrivateKey({ armoredKey: armor }), passphrase: pass })).armor();
+
+  it('opens through the host opener when one is set', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    let calls = 0;
+    pgp.useKeyOpener(async (armor, pass) => { calls++; return inThread(armor, pass); });
+    try {
+      await pgp.unlockPrivateKey(ME, PASS);
+      expect(calls).toBe(1);
+      expect(pgp.isUnlocked(ME)).toBe(true);
+    } finally { pgp.useKeyOpener(null); }
+  });
+
+  it('refuses a different key from the opener', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    const other = await openpgp.generateKey({ userIDs: [{ email: 'other@example.com' }], format: 'armored' });
+    pgp.useKeyOpener(async () => other.privateKey);
+    try {
+      await expect(pgp.unlockPrivateKey(ME, PASS)).rejects.toThrow(/different key/);
+      expect(pgp.isUnlocked(ME)).toBe(false);
+    } finally { pgp.useKeyOpener(null); }
+  });
+
+  it('passes a wrong passphrase through as the library error', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    pgp.useKeyOpener(inThread);
+    try {
+      await expect(pgp.unlockPrivateKey(ME, 'wrong')).rejects.toThrow(/passphrase|decrypt/i);
+    } finally { pgp.useKeyOpener(null); }
+  });
+});

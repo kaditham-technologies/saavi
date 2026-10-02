@@ -534,6 +534,32 @@ export async function importKey(
  * Unlock a private key for this session. Default: the active key. Pass a
  * (formatted or raw) fingerprint to unlock a specific — e.g. retired — key.
  */
+/**
+ * Where a locked key is opened. Opening runs the key's S2K — Argon2id for
+ * every lock this project writes — which is deliberately slow and
+ * memory-hard: seconds on a phone. In the page's own thread that is seconds
+ * of a frozen screen, with no way to show progress. A host may hand the work
+ * to a worker instead: the opener receives the LOCKED armor and the
+ * passphrase and returns the UNLOCKED armor of the same key, or rejects with
+ * the library's own error (so unlockError still classifies it). The result
+ * is checked to be the key that was asked for before anything trusts it.
+ * Default: open in this thread, exactly as before.
+ */
+export type KeyOpener = (lockedArmor: string, passphrase: string) => Promise<string>;
+let keyOpener: KeyOpener | null = null;
+export function useKeyOpener(fn: KeyOpener | null): void { keyOpener = fn; }
+
+/** Open a locked key through the host's opener when there is one. */
+export async function openLockedKey(lockedArmor: string, passphrase: string): Promise<openpgp.PrivateKey> {
+  const locked = await openpgp.readPrivateKey({ armoredKey: lockedArmor });
+  if (!keyOpener) return openpgp.decryptKey({ privateKey: locked, passphrase });
+  const opened = await openpgp.readPrivateKey({ armoredKey: await keyOpener(lockedArmor, passphrase) });
+  if (!opened.isDecrypted() || opened.getFingerprint() !== locked.getFingerprint()) {
+    throw new Error('The key opener returned a different key.');
+  }
+  return opened;
+}
+
 export async function unlockPrivateKey(email: string, passphrase: string, fingerprint?: string): Promise<void> {
   const ring = load(email);
   if (!ring) throw new Error('No encryption keys on this device.');
@@ -548,8 +574,7 @@ export async function unlockPrivateKey(email: string, passphrase: string, finger
   } else {
     target = ring.active;
   }
-  const locked = await openpgp.readPrivateKey({ armoredKey: target.privateKey });
-  const unlocked = await openpgp.decryptKey({ privateKey: locked, passphrase });
+  const unlocked = await openLockedKey(target.privateKey, passphrase);
   const fpr = unlocked.getFingerprint();
   sessionKeys.set(fpr, unlocked);
   if (target === ring.active) {
