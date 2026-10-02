@@ -150,6 +150,20 @@ function save(email: string, ring: KeyRing): void {
   store.set(STORE_PREFIX + email.toLowerCase(), JSON.stringify(ring));
 }
 
+/** Write a whole ring as-is — the keychain restore path (mailkeychain.ts),
+ *  which only ever passes rings whose records went through bindRecord, so
+ *  the public halves are derived, not supplied. Goes through the installed
+ *  RingStore: sealed disk in the Saavi shell, localStorage in the webmail. */
+export function installRing(email: string, ring: KeyRing): void {
+  save(email, ring);
+}
+
+/** Remove an address's ring from the store — the restore rollback. Session
+ *  memory is relockRing's job. */
+export function uninstallRing(email: string): void {
+  store.remove(STORE_PREFIX + email.toLowerCase());
+}
+
 /** Every address with a ring in the store. The alerts list and quarantined
  *  records share the prefix; treating them as addresses would make every
  *  read re-quarantine them, so an address is required to look like one —

@@ -7,7 +7,18 @@ them from drifting.
 ## Shared core (Saavi is upstream)
 
 `src/pgp.ts` (keystore + every OpenPGP operation), `src/wkd.ts`
-(WKD lookup) and `src/pins.ts` (recipient key pinning) are owned HERE.
+(WKD lookup), `src/pins.ts` (recipient key pinning) and — since 0.6.0 —
+`src/mailkeychain.ts` (the Kaditham Mail keychain client; the webmail's
+`src/keychain.ts`) are owned HERE. `mailkeychain.ts` reaches the network
+only through `./server` (`apiUrl`/`netFetch`), which each app provides,
+and writes rings only through `pgp.installRing`/`uninstallRing`.
+
+Pending in the webmail repo (do with its next sync, 2026-10-02): add
+`{ echo "$BANNER"; cat "$SAAVI/src/mailkeychain.ts"; } > src/keychain.ts`
+to `scripts/sync-saavi.sh`; its `tests/keychain*.test.ts` now live here as
+`tests/mailkeychain*.test.ts`. Note the webmail edited its vendored
+`pgp.ts` on 2026-10-01 (three commits) — brought home here in 8a41c79, so
+the next sync is a no-op for those lines rather than an erasure.
 The webmail vendors them via
 `scripts/sync-saavi.sh` in its repo, which applies only declared,
 mechanical brandings (storage prefix, backup-file wording) and records
@@ -70,8 +81,11 @@ below.
 | Paste-a-public-key recipient | ✓ | ✓ | armor normalized in core (single-line paste); pinned under its PRIMARY address only |
 | Kaditham directory + WKD publish | ✓ (mail-confirm link) | ✓ (automatic, bearer-authed at key creation) | service feature, not core; app proves ownership via `/signup/api/wkd/publish` confirmation mail |
 | Zero-access storage toggle | n/a | ✓ (Settings) | server feature |
-| Account identities as addresses | planned pairing | ✓ | |
-| OS keychain | planned | n/a (browser) | the reason Saavi exists |
+| Account identities as addresses | ✓ (0.6.0, signed in) | ✓ | |
+| Sign in with Kaditham Mail; keychain restore + sync | ✓ (0.6.0) | ✓ | core (`mailkeychain.ts`); Saavi's sign-in is `account.ts` (client id `kaditham-saavi`) |
+| Published-key match check (local · WKD · keychain) | ✓ (0.6.0) | not yet | app-side; warn only |
+| Where your keys live (keychain devices + app passwords) | ✓ (0.6.0) | partial (app passwords in Settings) | broker `GET /signup/api/keychain/devices` |
+| OS keychain | ✓ | n/a (browser) | the reason Saavi exists; 0.6.0 also keeps the account's refresh token there |
 | Sealed on-disk key store (ring bundle) | ✓ (shell; 0.5.0) | n/a (browser keeps localStorage) | core carries the bundle format + `RingStore` backend hook (`bundle.ts`, `pgp.ts`); the disk mirror and migration are Saavi-only (`diskstore.ts`, `store.rs`) |
 | Publish key to keys.openpgp.org | ✓ | ✓ | core (`vks.ts` upload + request-verify) |
 | Revocation certificates | ✓ | ✓ | core (`pgp.ts`); system keys via gpg (Saavi-only) |
