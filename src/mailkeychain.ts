@@ -770,6 +770,10 @@ export async function sync(username: string, addresses: string[],
  * passphrase attempts instead of hammering the fetch endpoint (argus
  * hardening) — restore itself installs and proves; only the fetch is reused.
  */
+/** Failures of the unlock ENGINE (Argon2's WebAssembly, memory), never of
+ *  the passphrase. Exported for the pin in tests/mailkeychain.test.ts. */
+export const ENGINE_FAILURE = /WebAssembly|Content Security|wasm|out of memory|Out of memory/i;
+
 export async function restore(
   username: string,
   passphrase: string,
@@ -912,6 +916,12 @@ export async function restore(
       if (!old || kept.includes(email)) pgp.relockRing(email);
     }
     if (e instanceof Error && /already on this device|no keys for/.test(e.message)) throw e;
+    // The engine failing is not a wrong passphrase. openpgp wraps EVERY
+    // failure as "Error decrypting private key: …" — including Argon2's
+    // WebAssembly being refused by the CSP, which in 0.6.0 sent people who
+    // typed the right password to a passphrase prompt they could not answer.
+    const engine = e instanceof Error && ENGINE_FAILURE.test(e.message);
+    if (engine) throw new Error(`This computer could not run the key unlock (${(e as Error).message}). Your keychain is fine and nothing was changed — please report this.`);
     const wrong = e instanceof Error && /passphrase|decrypt|incorrect|session key|argument/i.test(e.message);
     throw new Error(wrong
       ? 'That passphrase does not open the keychain. It is the one you chose when the key was created.'

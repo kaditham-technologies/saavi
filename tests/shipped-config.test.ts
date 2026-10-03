@@ -61,3 +61,20 @@ describe('the shell http client', () => {
     expect(urls).toContain('https://objects.githubusercontent.com/**');
   });
 });
+
+describe('the webview content security policy', () => {
+  const csp: string = JSON.parse(read('src-tauri/tauri.conf.json')).app.security.csp;
+  const scriptSrc = (csp.split(';').find((d) => d.trim().startsWith('script-src')) ?? '').trim().split(/\s+/);
+
+  it('lets Argon2 compile its WebAssembly — without it every account key fails to open (0.6.0)', () => {
+    // Webmail-made keys are Argon2id-locked; openpgp runs Argon2 as wasm,
+    // and both WebKit and WebView2 refuse to compile wasm under a bare
+    // script-src 'self'. The refusal surfaced as a passphrase prompt.
+    expect(scriptSrc).toContain("'wasm-unsafe-eval'");
+  });
+
+  it('still forbids eval of script text', () => {
+    expect(scriptSrc).not.toContain("'unsafe-eval'");
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
+  });
+});

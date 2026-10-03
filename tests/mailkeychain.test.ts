@@ -2,7 +2,7 @@
 // locked-material assertion. Each test names the property it pins.
 import { describe, expect, it } from 'vitest';
 import * as openpgp from 'openpgp';
-import { assertLocked, bindRecord, mergeEnvelopes, mergeRings, openEnvelope, parseBlob } from '../src/mailkeychain';
+import { assertLocked, bindRecord, ENGINE_FAILURE, mergeEnvelopes, mergeRings, openEnvelope, parseBlob } from '../src/mailkeychain';
 import type { KitEnvelope } from '../src/mailkeychain';
 import type { KeyRecord, KeyRing } from '../src/pgp';
 
@@ -265,5 +265,22 @@ describe('lock epochs (C4/A1)', () => {
     const one = await mergeRings({ 'a@example.com': { active: a, retired: [] } }, { 'a@example.com': { active: b, retired: [] } }, fakeFpr);
     const two = await mergeRings({ 'a@example.com': { active: b, retired: [] } }, { 'a@example.com': { active: a, retired: [] } }, fakeFpr);
     expect(one['a@example.com'].active.privateKey).toBe(two['a@example.com'].active.privateKey);
+  });
+});
+
+describe('an unlock-engine failure is never a wrong passphrase', () => {
+  // The exact words the two webview engines gave in 0.6.0 when the CSP
+  // refused Argon2's WebAssembly (reproduced in Playwright, 2026-10-03).
+  const chromium = "Error decrypting private key: WebAssembly.instantiate(): Compiling or instantiating WebAssembly module violates the following Content Security policy directive because 'unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: \"script-src 'self'\".";
+  const webkit = "Error decrypting private key: Refused to create a WebAssembly object because 'unsafe-eval' or 'wasm-unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: \"script-src 'self'\".";
+
+  it('recognises the webview refusals as engine failures', () => {
+    expect(ENGINE_FAILURE.test(chromium)).toBe(true);
+    expect(ENGINE_FAILURE.test(webkit)).toBe(true);
+  });
+
+  it('leaves a real wrong passphrase to the passphrase path', () => {
+    expect(ENGINE_FAILURE.test('Error decrypting private key: Incorrect key passphrase')).toBe(false);
+    expect(ENGINE_FAILURE.test('Error decrypting private key: Incorrect key passphrase: Authentication tag mismatch')).toBe(false);
   });
 });

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Signing in brings your keys without asking for a passphrase again.**
+  In 0.6.0, every key made in the webmail asked for a "passphrase" after
+  sign-in, though your password was the right answer. Those keys are
+  locked with Argon2, which runs as WebAssembly. Saavi's content security
+  policy did not allow WebAssembly, so the unlock failed before your
+  password was tried, and the failure was reported as a wrong passphrase.
+  The policy now allows WebAssembly (`'wasm-unsafe-eval'`; running script
+  from text is still forbidden). If the unlock engine itself fails, Saavi
+  now says so and changes nothing, instead of asking for a passphrase.
+
 ## 0.6.0 — 2026-10-02
 
 - **Sign in with Kaditham Mail, and your keys come with you.** On a new
