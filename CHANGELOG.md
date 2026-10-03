@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 — 2026-10-03
 
 - **Signing in brings your keys without asking for a passphrase again.**
   In 0.6.0, every key made in the webmail asked for a "passphrase" after
