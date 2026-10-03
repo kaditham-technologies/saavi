@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.2 — 2026-10-03
 
 - **Your other addresses are found, and your primary comes first.**
   Signing in asked whether to bring "only" the address you typed, because
