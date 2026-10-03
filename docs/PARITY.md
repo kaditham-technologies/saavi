@@ -19,11 +19,13 @@ to `scripts/sync-saavi.sh`; its `tests/keychain*.test.ts` now live here as
 `tests/mailkeychain*.test.ts`. Note the webmail edited its vendored
 `pgp.ts` on 2026-10-01 (three commits) — brought home here in 8a41c79, so
 the next sync is a no-op for those lines rather than an erasure.
-**Status 2026-10-03: not done.** `sync-saavi.sh` still does not copy
-`mailkeychain.ts`; the webmail's `keychain.ts` is maintained there by
-hand, and today's fix went across as a port (Saavi `dfc85ab` → webmail
-`aa1ad95`). Until the line is added, every `mailkeychain.ts` change needs
-a named port.
+**Done 2026-10-03.** `sync-saavi.sh` now copies `mailkeychain.ts` to the
+webmail's `src/keychain.ts` (and `auto-sync-core.sh` commits it). The
+webmail-only pieces came home first: `engineFailureMessage` and the
+post-split wrong-password wording ("Use the password you sign in with…";
+Saavi's restore matcher is now `/does not open the keychain/`). Checked by
+building the webmail with the synced file: tsc clean, 267/267. The first
+sync happens with the next Saavi release.
 
 **Core check 2026-10-03.** At Saavi v0.6.2 the eight vendored files
 (`pgp`, `wkd`, `mime`, `vks`, `pins`, `derive`, `passphrase`, `wordlist`)
@@ -95,7 +97,7 @@ below.
 | Zero-access storage toggle | n/a | ✓ (Settings) | server feature |
 | Account identities as addresses | ✓ (0.6.2: broker list ∪ identities, primary first) | identities only — port queued for the release after 0.5.0 | two sets since 0.6.2 (`account.ts` `addresses()`): **bring** = `/signup/api/me` addresses (disabled aliases kept) ∪ login ∪ `Identity/get`, primary first; **push** = login ∪ `Identity/get` (the broker's `accountAddressSet` — anything else 403s, and dropping a marker address wedges the no-shrink guard). `Identity/get` lists only minted identities, so an alias holding the user's key was invisible (0.6.0's "only khree@ is known") |
 | Primary address first; signs as primary by default | ✓ (0.6.2) | not yet (same port) | primary = the `primary: true` entry in `/signup/api/me`; a user's own pick of Sign as wins |
-| Unlock-engine failure is never "wrong passphrase" | ✓ (0.6.1, `dfc85ab`) | ✓ (`aa1ad95`, ships in 0.5.0) | `ENGINE_FAILURE` checked before the passphrase classifier. Saavi's CSP also needed `'wasm-unsafe-eval'` for Argon2-locked (webmail-made) keys — shell-only, the browser already allowed it |
+| Unlock-engine failure is never "wrong passphrase" | ✓ (0.6.1, `dfc85ab`) | ✓ (`aa1ad95`, ships in 0.5.0; core-synced from the next release) | `ENGINE_FAILURE` checked before the passphrase classifier. Saavi's CSP also needed `'wasm-unsafe-eval'` for Argon2-locked (webmail-made) keys — shell-only, the browser already allowed it |
 | Sign in with Kaditham Mail; keychain restore + sync | ✓ (0.6.0) | ✓ | core (`mailkeychain.ts`); Saavi's sign-in is `account.ts` (client id `kaditham-saavi`) |
 | Published-key match check (local · WKD · keychain) | ✓ (0.6.0) | not yet | app-side; warn only |
 | Where your keys live (keychain devices + app passwords) | ✓ (0.6.0) | partial (app passwords in Settings) | broker `GET /signup/api/keychain/devices` |

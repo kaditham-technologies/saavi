@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **A wrong password says which password to use.** The keychain now says
+  "Use the password you sign in with — or, for a key made with its own
+  passphrase, that passphrase", matching Kaditham Mail. The keychain
+  client is now shared with the webmail word for word.
+
 ## 0.6.2 — 2026-10-03
 
 - **Your other addresses are found, and your primary comes first.**

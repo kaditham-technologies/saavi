@@ -295,7 +295,7 @@ async function bringKeys(set: (id: string, s: StepState, label?: string, note?: 
       // Nothing to bring — but this version has now been seen (argus A1).
       await mk.acceptVersion(user, addrs, src.version).catch(() => false);
       set('unlock', 'done', 'Your keys were already on this computer');
-    } else if (/passphrase does not open/.test(m)) {
+    } else if (/does not open the keychain/.test(m)) {
       // Every ring wears a passphrase other than the sign-in password (keys
       // made before the password split). Ask for it, reuse the same blob.
       set('unlock', 'active', 'Your keys wear an older passphrase');

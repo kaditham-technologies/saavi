@@ -774,6 +774,12 @@ export async function sync(username: string, addresses: string[],
  *  the passphrase. Exported for the pin in tests/mailkeychain.test.ts. */
 export const ENGINE_FAILURE = /WebAssembly|Content Security|wasm|out of memory|Out of memory/i;
 
+/** The message for an engine failure: the passphrase was never judged.
+ *  Exported so every host classifier says the same thing (the webmail
+ *  shows it from five places). */
+export const engineFailureMessage = (e: Error): string =>
+  `This device could not run the key unlock (${e.message}). Your keychain is fine and nothing was changed — please report this.`;
+
 export async function restore(
   username: string,
   passphrase: string,
@@ -921,10 +927,10 @@ export async function restore(
     // WebAssembly being refused by the CSP, which in 0.6.0 sent people who
     // typed the right password to a passphrase prompt they could not answer.
     const engine = e instanceof Error && ENGINE_FAILURE.test(e.message);
-    if (engine) throw new Error(`This computer could not run the key unlock (${(e as Error).message}). Your keychain is fine and nothing was changed — please report this.`);
+    if (engine) throw new Error(engineFailureMessage(e as Error));
     const wrong = e instanceof Error && /passphrase|decrypt|incorrect|session key|argument/i.test(e.message);
     throw new Error(wrong
-      ? 'That passphrase does not open the keychain. It is the one you chose when the key was created.'
+      ? 'That does not open the keychain. Use the password you sign in with — or, for a key made with its own passphrase, that passphrase.'
       : 'The keychain could not be opened on this device — it may be damaged. Your key backup file is the way in.');
   }
 }
