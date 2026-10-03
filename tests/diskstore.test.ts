@@ -4,7 +4,7 @@
 // silently empty; browser-held rings found beside a disk store are adopted
 // or reported, never overwritten; and a failing flush alarms, retries, and
 // loses nothing.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as pgp from '../src/pgp';
 import { bundleFromStore, sealBundle, serialiseBundle, unsealBundle, parseBundle } from '../src/bundle';
 import { initDiskStore, type DiskIo } from '../src/diskstore';
@@ -250,8 +250,10 @@ describe('a failing flush', () => {
     expect(pgp.storeAlerts()).toEqual([]); // the mirror kept the change
 
     broken = false;
-    await new Promise((r) => setTimeout(r, 120)); // let a retry land
-    expect(flushStates).toEqual(['disk full', null]);
+    // Wait for the retry to land rather than a fixed sleep: each retry
+    // re-seals the whole bundle, which can outlast any fixed delay when the
+    // suite runs in parallel (the flake seen through 0.6.x).
+    await vi.waitFor(() => expect(flushStates).toEqual(['disk full', null]), { timeout: 5000, interval: 10 });
     const after = await parseBundle(await unsealBundle(state.store!, 's3cret'));
     expect(after.alerts).toEqual([]);
   });
