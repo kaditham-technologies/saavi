@@ -278,7 +278,7 @@ export async function signOut(): Promise<void> {
   session = null;
   accountSecret = null;
   password = null;
-  rememberPrimary(null);
+  if (knownPrimary) { rememberPrimary(null); primaryChanged(); }
   if (inShell()) { try { await invoke('account_session_delete'); } catch { /* nothing stored */ } }
   changed();
 }
@@ -359,11 +359,18 @@ async function jmapCall(calls: unknown[][], using: string[]): Promise<any[]> {
 
 const acct = (s: JmapSession, cap: string): string => s.primaryAccounts[cap] ?? Object.keys(s.accounts)[0];
 
-/** Every address this account may hold keys for: the login and its send-as
- *  identities (the broker's accountAddressSet rule). `primary` is the
- *  account's main address as the mail server records it, first in `list`;
- *  null when only the JMAP fallback answered. */
-export interface AddressSet { list: string[]; complete: boolean; primary: string | null }
+/** The account's addresses, from two sources (argus review of 0.6.2):
+ *  - `list`: every address keys may be BROUGHT for — the login, the broker's
+ *    aliases (enabled or not) and the JMAP identities, primary first.
+ *  - `push`: the addresses the broker's keychain ACCEPTS on a push (its
+ *    accountAddressSet: the login and the minted identities). Sync and
+ *    backup use only this, so they never offer an address the broker
+ *    refuses, nor drop one it already holds. null when Identity/get could
+ *    not be read — sync must then say so (argus A4).
+ *  `complete` is true when either source answered, so restore never acts
+ *  on the login alone silently. `primary` is the account's main address
+ *  as the mail server records it; null when the broker did not answer. */
+export interface AddressSet { list: string[]; complete: boolean; primary: string | null; push: string[] | null }
 
 const PRIMARY_KEY = 'saavi-primary';
 let knownPrimary: { for: string; email: string } | null = (() => {
@@ -404,35 +411,39 @@ async function brokerAddresses(): Promise<{ list: string[]; primary: string } | 
   const out = [primary];
   for (const a of j.addresses) {
     const e = clean(a?.email);
-    if (e && !out.includes(e) && a?.enabled !== false) out.push(e);
+    if (e && !out.includes(e)) out.push(e);
   }
   return { list: out, primary };
 }
 
-/** `complete: false` when the send-as identities could not be read: the list
- *  then holds only the login address, and restore/sync must SAY so rather
- *  than act on a subset silently (argus A4). */
-export async function addresses(): Promise<AddressSet> {
-  const me = session!.address;
-  try {
-    const b = await brokerAddresses();
-    if (b) {
-      const was = primaryAddress();
-      rememberPrimary({ for: me, email: b.primary });
-      if (was !== b.primary) changed();
-      return { list: b.list.includes(me) ? b.list : [...b.list, me], complete: true, primary: b.primary };
-    }
-  } catch { /* the JMAP fallback below */ }
-  const out = new Set<string>([me]);
+const primaryListeners = new Set<() => void>();
+/** Fires when the broker names a different primary (or sign-out forgets it). */
+export function onPrimaryChange(fn: () => void): () => void { primaryListeners.add(fn); return () => primaryListeners.delete(fn); }
+const primaryChanged = (): void => { for (const fn of primaryListeners) fn(); };
+
+async function identityAddresses(): Promise<string[] | null> {
   try {
     const s = await jmapSession();
     const rs = await jmapCall([['Identity/get', { accountId: acct(s, SUBMISSION), properties: ['email'] }, '0']], [CORE, MAIL, SUBMISSION]);
-    if (rs[0]?.[0] !== 'Identity/get') return { list: [...out], complete: false, primary: null };
-    for (const i of rs[0]?.[1]?.list ?? []) if (typeof i.email === 'string') out.add(i.email.trim().toLowerCase());
-    return { list: [...out], complete: true, primary: null };
-  } catch {
-    return { list: [...out], complete: false, primary: null };
+    if (rs[0]?.[0] !== 'Identity/get') return null;
+    const out: string[] = [];
+    for (const i of rs[0]?.[1]?.list ?? []) if (typeof i.email === 'string') out.push(i.email.trim().toLowerCase());
+    return out;
+  } catch { return null; }
+}
+
+export async function addresses(): Promise<AddressSet> {
+  const me = session!.address;
+  const [b, ids] = await Promise.all([brokerAddresses().catch(() => null), identityAddresses()]);
+  if (b && me === session?.address) {
+    const was = primaryAddress();
+    rememberPrimary({ for: me, email: b.primary });
+    if (was !== b.primary) primaryChanged();
   }
+  const list: string[] = [];
+  for (const e of [...(b?.list ?? []), me, ...(ids ?? [])]) if (!list.includes(e)) list.push(e);
+  const push = ids ? [...new Set([me, ...ids])] : null;
+  return { list, complete: b !== null || ids !== null, primary: b?.primary ?? null, push };
 }
 
 export interface AppPassword { description: string; createdAt: string | null }

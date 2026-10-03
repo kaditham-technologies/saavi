@@ -13,6 +13,8 @@ let seen: { url: string; body: string }[] = [];
 let mode: 'ok' | 'mfa' | 'deny' | 'rate' | 'down' | 'oldbroker' = 'ok';
 /** What GET /signup/api/me answers: null = 404 (an older broker). */
 let meAddresses: unknown = null;
+/** JMAP Identity/get answers 500 (the broker still answers). */
+let idsDown = false;
 let tokenStatus = 200;
 let tokenGate: Promise<void> | null = null;
 
@@ -46,6 +48,7 @@ setNet(async (input, init) => {
   }
   if (path === '/jmap/') {
     const calls = JSON.parse(body).methodCalls as [string][];
+    if (calls[0][0] === 'Identity/get' && idsDown) return json(500, {});
     if (calls[0][0] === 'Identity/get') return json(200, { methodResponses: [['Identity/get', { list: [{ email: 'Me@example.com' }, { email: 'sales@example.com' }] }, '0']] });
     return json(200, { methodResponses: [['x:AppPassword/get', { list: [{ description: 'Thunderbird', createdAt: '2026-09-01T00:00:00Z' }, { description: '' }] }, '0']] });
   }
@@ -66,6 +69,7 @@ beforeEach(async () => {
   tokenStatus = 200;
   tokenGate = null;
   meAddresses = null;
+  idsDown = false;
   await account.signOut();
   setServerBase('https://mail.kaditham.ie');
 });
@@ -129,24 +133,47 @@ describe('account reads', () => {
     await account.signIn(USER, PASS, undefined);
     mode = 'down';
     const addrs = await account.addresses();
-    expect(addrs).toEqual({ list: ['me@example.com'], complete: false, primary: null });
+    expect(addrs).toEqual({ list: ['me@example.com'], complete: false, primary: null, push: null });
   });
 
-  it('takes the broker list: the primary first, every enabled alias, the login kept', async () => {
+  it('brings from broker ∪ identities, primary first; pushes only what the keychain accepts', async () => {
     await account.signIn(USER, PASS, undefined);
     meAddresses = [
       { email: 'Chari@Example.com', primary: true, enabled: true },
       { email: 'old@example.com', primary: false, enabled: false },
-      { email: 'sales@example.com', primary: false, enabled: true },
       { email: 'not an address', primary: false, enabled: true },
     ];
     const addrs = await account.addresses();
-    expect(addrs).toEqual({ list: ['chari@example.com', 'sales@example.com', 'me@example.com'], complete: true, primary: 'chari@example.com' });
+    // A disabled alias is still brought (its ring may already be in the
+    // keychain); the identity-only address is kept too (argus, 0.6.2).
+    expect(addrs).toEqual({
+      list: ['chari@example.com', 'old@example.com', 'me@example.com', 'sales@example.com'],
+      complete: true, primary: 'chari@example.com', push: ['me@example.com', 'sales@example.com'],
+    });
     expect(account.primaryAddress()).toBe('chari@example.com');
-    // The broker answered, so no JMAP identity read was needed.
-    expect(seen.some((s) => s.body.includes('Identity/get'))).toBe(false);
     await account.signOut();
     expect(account.primaryAddress()).toBeNull();
+  });
+
+  it('tells the main window once when the primary changes', async () => {
+    await account.signIn(USER, PASS, undefined);
+    let n = 0;
+    const off = account.onPrimaryChange(() => { n++; });
+    meAddresses = [{ email: 'chari@example.com', primary: true, enabled: true }];
+    await account.addresses();
+    await account.addresses();
+    expect(n).toBe(1);
+    await account.signOut();
+    expect(n).toBe(2);
+    off();
+  });
+
+  it('a broker answer without identities still brings everything, but sync waits', async () => {
+    await account.signIn(USER, PASS, undefined);
+    meAddresses = [{ email: 'chari@example.com', primary: true, enabled: true }];
+    idsDown = true;
+    const addrs = await account.addresses();
+    expect(addrs).toEqual({ list: ['chari@example.com', 'me@example.com'], complete: true, primary: 'chari@example.com', push: null });
   });
 
   it('falls back to JMAP identities when the broker names no primary', async () => {
@@ -156,6 +183,7 @@ describe('account reads', () => {
     expect(addrs.primary).toBeNull();
     expect(addrs.complete).toBe(true);
     expect(addrs.list.sort()).toEqual(['me@example.com', 'sales@example.com']);
+    expect(addrs.push).toEqual(['me@example.com', 'sales@example.com']);
     expect(account.primaryAddress()).toBeNull();
   });
 

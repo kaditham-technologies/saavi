@@ -470,7 +470,7 @@ export async function showPanel(): Promise<void> {
   const card = openCard((c) => c.append(el('h2', undefined, 'Kaditham Mail'), el('p', 'hint', 'Loading your account…')), true);
   const user = account.address()!;
   const fresh = await account.ready().then(() => null, (e) => errText(e));
-  const set0 = fresh ? { list: [user], complete: false, primary: null } : await account.addresses();
+  const set0 = fresh ? { list: [user], complete: false, primary: null, push: null } : await account.addresses();
   const addrs = set0.list;
   const st = fresh ? null : await mk.status().catch(() => null);
   const [devs, aps] = fresh ? [{ ok: false as const, e: fresh }, { ok: false as const, e: fresh }] : await Promise.all([
@@ -603,7 +603,8 @@ async function syncNow(b: HTMLButtonElement): Promise<void> {
   try {
     await account.ready();
     const set0 = await account.addresses();
-    if (!set0.complete) {
+    const push = set0.push;
+    if (!push) {
       // A push from a partial address list would be deferred by the no-shrink
       // guard anyway; say why instead of pretending (argus A4).
       say('Your other addresses could not be read just now — nothing was synced. Try again in a moment.');
@@ -612,13 +613,13 @@ async function syncNow(b: HTMLButtonElement): Promise<void> {
     if (!(await needPassword('Syncing proves your password to the keychain.'))) return;
     const user = account.address()!;
     say('Checking for changes…');
-    if (await localDiffersFromAccount(set0.list)) {
+    if (await localDiffersFromAccount(push)) {
       say('');
       await notice2('This computer and your account disagree',
         'For at least one address, this computer’s current key is not the one your account uses. Syncing now would make this computer’s key the current one on every device. Review “Your key, as others see it” first; to take the account’s key instead, use “Bring keys here”.');
       return;
     }
-    const r = await mk.sync(user, set0.list);
+    const r = await mk.sync(user, push);
     say(r === 'unchanged' ? 'Already in step.' : r === 'nothing-local' ? 'Nothing here to back up yet.' : r === 'exists' ? 'Your account already has a keychain — use “Bring keys here” first.' : `Synced (${r}).`);
     const v = mk.knownVersion(user);
     if (v !== null) writeBaseline(user, v);
@@ -750,12 +751,15 @@ async function focusCheck(): Promise<void> {
  *  current key on every device. */
 export async function keysChanged(email: string, passUsed: string): Promise<void> {
   if (!account.signedIn()) return;
-  const set0 = await account.addresses().catch(() => ({ list: [] as string[], complete: false, primary: null }));
+  const set0 = await account.addresses().catch(() => ({ list: [] as string[], complete: false, primary: null, push: null as string[] | null }));
   if (!set0.list.includes(email.toLowerCase())) return;
+  // An alias the keychain does not accept yet (no send-as identity) is
+  // left alone rather than offered and refused (argus, 0.6.2).
+  if (set0.push && !set0.push.includes(email.toLowerCase())) return;
   if (!(await confirmBox('Use this key on all your devices?',
     `${email} belongs to your Kaditham Mail account. Back this key up to your keychain and make it the current key everywhere? Older keys stay, so old mail still opens.`,
     'Back it up'))) return;
-  if (!set0.complete) { hooks.status('Your other addresses could not be read just now — open the account panel and use Sync now in a moment.'); return; }
+  if (!set0.push) { hooks.status('Your other addresses could not be read just now — open the account panel and use Sync now in a moment.'); return; }
   try {
     await account.ready();
     if (!(await needPassword('Backing up proves your password to the keychain.'))) return;
@@ -770,7 +774,7 @@ export async function keysChanged(email: string, passUsed: string): Promise<void
       await hooks.flush();
     }
     const user = account.address()!;
-    const r = await mk.sync(user, set0.list);
+    const r = await mk.sync(user, set0.push);
     const v = mk.knownVersion(user);
     if (v !== null) writeBaseline(user, v);
     hooks.status(r === 'exists' ? 'Your account already has a keychain — open the account panel and use “Bring keys here” first.' : 'Backed up to your Kaditham Mail keychain.');

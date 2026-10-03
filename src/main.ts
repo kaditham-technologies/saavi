@@ -1290,8 +1290,11 @@ const recipientsRaw = (): string =>
     : ($('seal-to') as HTMLInputElement).value).trim();
 const signAs = (): string => ($('seal-sign') as HTMLSelectElement).value;
 $('seal-sign').addEventListener('change', () => { signPicked = true; });
-// The broker naming a primary (or a sign-out) reorders the key list.
-account.onChange(() => { void refreshKeys(); });
+// The broker naming a different primary (or a sign-out) reorders the
+// Saavi key list; nothing else in the account's life redraws it.
+account.onPrimaryChange(() => { if (source !== 'system') void refreshKeys(); });
+// A new account starts from its own primary, not the last user's pick.
+account.onChange(() => { if (!account.signedIn()) signPicked = false; });
 
 /* ---------- who you can already seal to ----------
  * The addresses this device holds a key for are sitting in the store; making

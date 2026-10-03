@@ -8,8 +8,10 @@
   an alias without one never showed up. Saavi now asks Kaditham Mail for
   your address list, the same one the webmail uses, so keys on every alias
   arrive in one go. The address your account has set as primary is listed
-  first, and Saavi signs with it until you pick another. If that list is
-  unavailable, Saavi falls back to the identities as before and says so.
+  first, and Saavi signs with it until you pick another. Backing up to
+  your keychain still covers only the addresses the keychain accepts, so a
+  new alias never makes Sync fail. If neither list can be read, Saavi says
+  so and changes nothing.
 
 ## 0.6.1 — 2026-10-03
 
