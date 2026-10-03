@@ -38,6 +38,8 @@ describe('the shell http client', () => {
     // Stalwart's session apiUrl may come with or without the slash.
     expect(mail).toContain('https://mail.kaditham.ie/jmap');
     expect(mail).toContain('https://mail.kaditham.ie/jmap/');
+    // The address list with the primary (account.ts brokerAddresses).
+    expect(mail).toContain('https://mail.kaditham.ie/signup/api/me');
   });
 
   it('checks the scope on every redirect hop (tauri-plugin-http ≥ 2.7.0, scopeRedirects)', () => {

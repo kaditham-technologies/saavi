@@ -19,6 +19,7 @@ const RENEW_MARGIN = 120_000;
 const TIMEOUT = 20_000;
 
 const CORE = 'urn:ietf:params:jmap:core';
+const MAIL = 'urn:ietf:params:jmap:mail';
 const SUBMISSION = 'urn:ietf:params:jmap:submission';
 const STALWART = 'urn:stalwart:jmap';
 
@@ -277,6 +278,7 @@ export async function signOut(): Promise<void> {
   session = null;
   accountSecret = null;
   password = null;
+  rememberPrimary(null);
   if (inShell()) { try { await invoke('account_session_delete'); } catch { /* nothing stored */ } }
   changed();
 }
@@ -358,21 +360,78 @@ async function jmapCall(calls: unknown[][], using: string[]): Promise<any[]> {
 const acct = (s: JmapSession, cap: string): string => s.primaryAccounts[cap] ?? Object.keys(s.accounts)[0];
 
 /** Every address this account may hold keys for: the login and its send-as
- *  identities (the broker's accountAddressSet rule). */
-export interface AddressSet { list: string[]; complete: boolean }
+ *  identities (the broker's accountAddressSet rule). `primary` is the
+ *  account's main address as the mail server records it, first in `list`;
+ *  null when only the JMAP fallback answered. */
+export interface AddressSet { list: string[]; complete: boolean; primary: string | null }
+
+const PRIMARY_KEY = 'saavi-primary';
+let knownPrimary: { for: string; email: string } | null = (() => {
+  // A display preference, not a secret: it orders keys after a restart,
+  // before the broker has been asked again.
+  try {
+    const v = JSON.parse(localStorage.getItem(PRIMARY_KEY) ?? 'null');
+    return typeof v?.for === 'string' && typeof v?.email === 'string' ? v : null;
+  } catch { return null; }
+})();
+/** The primary address the broker last named for the signed-in account,
+ *  if any — the main window lists its key first and signs with it. */
+export function primaryAddress(): string | null {
+  return knownPrimary && knownPrimary.for === session?.address ? knownPrimary.email : null;
+}
+function rememberPrimary(v: { for: string; email: string } | null): void {
+  knownPrimary = v;
+  try { v ? localStorage.setItem(PRIMARY_KEY, JSON.stringify(v)) : localStorage.removeItem(PRIMARY_KEY); } catch { /* storage off */ }
+}
+
+interface BrokerAddress { email?: unknown; primary?: unknown; enabled?: unknown }
+
+/** The broker's word (`/signup/api/me`): the primary and every alias. JMAP
+ *  Identity/get lists only identities minted so far, so an alias without
+ *  one is invisible there — the webmail reads the same broker list. */
+async function brokerAddresses(): Promise<{ list: string[]; primary: string } | null> {
+  const r = await authed('/signup/api/me');
+  if (!r.ok) return null;
+  const j = await r.json().catch(() => null) as { addresses?: BrokerAddress[] | null } | null;
+  if (!j || !Array.isArray(j.addresses)) return null;
+  const clean = (v: unknown): string | null => {
+    if (typeof v !== 'string') return null;
+    const e = v.trim().toLowerCase();
+    return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) ? e : null;
+  };
+  const primary = clean(j.addresses.find((a) => a?.primary === true)?.email);
+  if (!primary) return null;
+  const out = [primary];
+  for (const a of j.addresses) {
+    const e = clean(a?.email);
+    if (e && !out.includes(e) && a?.enabled !== false) out.push(e);
+  }
+  return { list: out, primary };
+}
+
 /** `complete: false` when the send-as identities could not be read: the list
  *  then holds only the login address, and restore/sync must SAY so rather
  *  than act on a subset silently (argus A4). */
 export async function addresses(): Promise<AddressSet> {
-  const out = new Set<string>([session!.address]);
+  const me = session!.address;
+  try {
+    const b = await brokerAddresses();
+    if (b) {
+      const was = primaryAddress();
+      rememberPrimary({ for: me, email: b.primary });
+      if (was !== b.primary) changed();
+      return { list: b.list.includes(me) ? b.list : [...b.list, me], complete: true, primary: b.primary };
+    }
+  } catch { /* the JMAP fallback below */ }
+  const out = new Set<string>([me]);
   try {
     const s = await jmapSession();
-    const rs = await jmapCall([['Identity/get', { accountId: acct(s, SUBMISSION), properties: ['email'] }, '0']], [CORE, SUBMISSION]);
-    if (rs[0]?.[0] !== 'Identity/get') return { list: [...out], complete: false };
+    const rs = await jmapCall([['Identity/get', { accountId: acct(s, SUBMISSION), properties: ['email'] }, '0']], [CORE, MAIL, SUBMISSION]);
+    if (rs[0]?.[0] !== 'Identity/get') return { list: [...out], complete: false, primary: null };
     for (const i of rs[0]?.[1]?.list ?? []) if (typeof i.email === 'string') out.add(i.email.trim().toLowerCase());
-    return { list: [...out], complete: true };
+    return { list: [...out], complete: true, primary: null };
   } catch {
-    return { list: [...out], complete: false };
+    return { list: [...out], complete: false, primary: null };
   }
 }
 

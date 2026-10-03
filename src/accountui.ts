@@ -470,7 +470,7 @@ export async function showPanel(): Promise<void> {
   const card = openCard((c) => c.append(el('h2', undefined, 'Kaditham Mail'), el('p', 'hint', 'Loading your account…')), true);
   const user = account.address()!;
   const fresh = await account.ready().then(() => null, (e) => errText(e));
-  const set0 = fresh ? { list: [user], complete: false } : await account.addresses();
+  const set0 = fresh ? { list: [user], complete: false, primary: null } : await account.addresses();
   const addrs = set0.list;
   const st = fresh ? null : await mk.status().catch(() => null);
   const [devs, aps] = fresh ? [{ ok: false as const, e: fresh }, { ok: false as const, e: fresh }] : await Promise.all([
@@ -750,7 +750,7 @@ async function focusCheck(): Promise<void> {
  *  current key on every device. */
 export async function keysChanged(email: string, passUsed: string): Promise<void> {
   if (!account.signedIn()) return;
-  const set0 = await account.addresses().catch(() => ({ list: [] as string[], complete: false }));
+  const set0 = await account.addresses().catch(() => ({ list: [] as string[], complete: false, primary: null }));
   if (!set0.list.includes(email.toLowerCase())) return;
   if (!(await confirmBox('Use this key on all your devices?',
     `${email} belongs to your Kaditham Mail account. Back this key up to your keychain and make it the current key everywhere? Older keys stay, so old mail still opens.`,

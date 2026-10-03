@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Your other addresses are found, and your primary comes first.**
+  Signing in asked whether to bring "only" the address you typed, because
+  Saavi read your addresses from the mail server's send-as identities, and
+  an alias without one never showed up. Saavi now asks Kaditham Mail for
+  your address list, the same one the webmail uses, so keys on every alias
+  arrive in one go. The address your account has set as primary is listed
+  first, and Saavi signs with it until you pick another. If that list is
+  unavailable, Saavi falls back to the identities as before and says so.
+
 ## 0.6.1 — 2026-10-03
 
 - **Signing in brings your keys without asking for a passphrase again.**

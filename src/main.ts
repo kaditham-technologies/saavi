@@ -20,6 +20,7 @@ import { ask, confirmBox, notice } from './ui';
 import { generatePassphrase, passphraseBits, describeStrength, gatePassword } from './passphrase';
 import * as update from './update';
 import { initAccountUi, keysChanged } from './accountui';
+import * as account from './account';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
@@ -48,8 +49,17 @@ function el(tag: string, cls?: string, text?: string): HTMLElement {
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const status = (msg: string): void => { $('status').textContent = msg; };
 
-/** Every address with a ring in the Saavi store (whichever backend rules). */
-const ringAddresses = pgp.ringAddresses;
+/** True once the user chose a sign-as entry themselves; until then the
+ *  account's primary is preselected (refreshKeys). */
+let signPicked = false;
+
+/** Every address with a ring in the Saavi store (whichever backend rules),
+ *  the account's primary first when Kaditham Mail has named one. */
+const ringAddresses = (): string[] => {
+  const all = pgp.ringAddresses();
+  const p = account.primaryAddress();
+  return p && all.includes(p) ? [p, ...all.filter((a) => a !== p)] : all;
+};
 
 // ---------- the sealed disk store (shell only) ----------
 // In the shell the Saavi store lives on disk as a sealed bundle, not in
@@ -656,6 +666,9 @@ async function refreshKeys(): Promise<void> {
   sign.replaceChildren(new Option("Don't sign", ''));
   for (const email of ringAddresses()) sign.append(new Option(email, email));
   if ([...sign.options].some((o) => o.value === prev)) sign.value = prev;
+  // Until the user picks, sign as the account's primary address.
+  const primary = account.primaryAddress();
+  if (!signPicked && primary && ringAddresses().includes(primary)) sign.value = primary;
   syncTools();
 }
 
@@ -1276,6 +1289,9 @@ const recipientsRaw = (): string =>
     ? ($('seal-to-key') as HTMLTextAreaElement).value
     : ($('seal-to') as HTMLInputElement).value).trim();
 const signAs = (): string => ($('seal-sign') as HTMLSelectElement).value;
+$('seal-sign').addEventListener('change', () => { signPicked = true; });
+// The broker naming a primary (or a sign-out) reorders the key list.
+account.onChange(() => { void refreshKeys(); });
 
 /* ---------- who you can already seal to ----------
  * The addresses this device holds a key for are sitting in the store; making

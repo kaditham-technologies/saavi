@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Saavi main window: open/save dialogs (the chosen paths are scoped by the dialog itself), text + binary file read/write for backups and sealed files, opening the download page in the browser, and the one-click updater (download is signature-verified against the key baked into this binary; install happens only on the user's click). The Rust-side http client is scoped to what the app needs: WKD paths on ANY https host (recipient lookup is the point, so a compromised frontend could still reach any host's /.well-known/openpgpkey/ path — a narrow channel, not none), keys.openpgp.org, the Kaditham WKD publish endpoint, the exact Kaditham Mail sign-in, JMAP and keychain paths on mail.kaditham.ie (0.6.0), and the update manifest + release assets. Redirects are checked against this scope on every hop (plugins.http.scopeRedirects). Saavi talks to no other mail server, in any build.",
+  "description": "Saavi main window: open/save dialogs (the chosen paths are scoped by the dialog itself), text + binary file read/write for backups and sealed files, opening the download page in the browser, and the one-click updater (download is signature-verified against the key baked into this binary; install happens only on the user's click). The Rust-side http client is scoped to what the app needs: WKD paths on ANY https host (recipient lookup is the point, so a compromised frontend could still reach any host's /.well-known/openpgpkey/ path — a narrow channel, not none), keys.openpgp.org, the Kaditham WKD publish endpoint, the exact Kaditham Mail sign-in, JMAP and keychain paths on mail.kaditham.ie (0.6.0), the account's address list (/signup/api/me, 0.6.2), and the update manifest + release assets. Redirects are checked against this scope on every hop (plugins.http.scopeRedirects). Saavi talks to no other mail server, in any build.",
   "windows": [
     "main"
   ],
@@ -77,6 +77,9 @@
         },
         {
           "url": "https://mail.kaditham.ie/signup/api/keychain/devices"
+        },
+        {
+          "url": "https://mail.kaditham.ie/signup/api/me"
         },
         {
           "url": "https://release-assets.githubusercontent.com/**"

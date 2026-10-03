@@ -11,6 +11,8 @@ const USER = 'me@example.com';
 const PASS = 'correct horse battery staple';
 let seen: { url: string; body: string }[] = [];
 let mode: 'ok' | 'mfa' | 'deny' | 'rate' | 'down' | 'oldbroker' = 'ok';
+/** What GET /signup/api/me answers: null = 404 (an older broker). */
+let meAddresses: unknown = null;
 let tokenStatus = 200;
 let tokenGate: Promise<void> | null = null;
 
@@ -47,6 +49,10 @@ setNet(async (input, init) => {
     if (calls[0][0] === 'Identity/get') return json(200, { methodResponses: [['Identity/get', { list: [{ email: 'Me@example.com' }, { email: 'sales@example.com' }] }, '0']] });
     return json(200, { methodResponses: [['x:AppPassword/get', { list: [{ description: 'Thunderbird', createdAt: '2026-09-01T00:00:00Z' }, { description: '' }] }, '0']] });
   }
+  if (path === '/signup/api/me') {
+    if (meAddresses === null) return json(404, { error: 'Not found.' });
+    return json(200, { email: 'me', addresses: meAddresses });
+  }
   if (path === '/signup/api/keychain/devices') {
     if (mode === 'oldbroker') return json(404, { error: 'Not found.' });
     return json(200, { devices: [{ label: 'Saavi on Linux', firstAt: 'a', lastAt: 'b', current: true }] });
@@ -59,6 +65,7 @@ beforeEach(async () => {
   mode = 'ok';
   tokenStatus = 200;
   tokenGate = null;
+  meAddresses = null;
   await account.signOut();
   setServerBase('https://mail.kaditham.ie');
 });
@@ -122,7 +129,34 @@ describe('account reads', () => {
     await account.signIn(USER, PASS, undefined);
     mode = 'down';
     const addrs = await account.addresses();
-    expect(addrs).toEqual({ list: ['me@example.com'], complete: false });
+    expect(addrs).toEqual({ list: ['me@example.com'], complete: false, primary: null });
+  });
+
+  it('takes the broker list: the primary first, every enabled alias, the login kept', async () => {
+    await account.signIn(USER, PASS, undefined);
+    meAddresses = [
+      { email: 'Chari@Example.com', primary: true, enabled: true },
+      { email: 'old@example.com', primary: false, enabled: false },
+      { email: 'sales@example.com', primary: false, enabled: true },
+      { email: 'not an address', primary: false, enabled: true },
+    ];
+    const addrs = await account.addresses();
+    expect(addrs).toEqual({ list: ['chari@example.com', 'sales@example.com', 'me@example.com'], complete: true, primary: 'chari@example.com' });
+    expect(account.primaryAddress()).toBe('chari@example.com');
+    // The broker answered, so no JMAP identity read was needed.
+    expect(seen.some((s) => s.body.includes('Identity/get'))).toBe(false);
+    await account.signOut();
+    expect(account.primaryAddress()).toBeNull();
+  });
+
+  it('falls back to JMAP identities when the broker names no primary', async () => {
+    await account.signIn(USER, PASS, undefined);
+    meAddresses = [{ email: 'sales@example.com', primary: false, enabled: true }];
+    const addrs = await account.addresses();
+    expect(addrs.primary).toBeNull();
+    expect(addrs.complete).toBe(true);
+    expect(addrs.list.sort()).toEqual(['me@example.com', 'sales@example.com']);
+    expect(account.primaryAddress()).toBeNull();
   });
 
   it('lists app passwords, naming the unnamed', async () => {
