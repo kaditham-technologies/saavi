@@ -6,6 +6,12 @@
   "Use the password you sign in with — or, for a key made with its own
   passphrase, that passphrase", matching Kaditham Mail. The keychain
   client is now shared with the webmail word for word.
+- **Two of three people can get your keys back.** A new core module,
+  `recoveryshares`, cuts a recovery secret into three sheets of twelve
+  words — for you, someone you trust, and your mail provider. Any two
+  rebuild it; one alone reveals nothing, so the provider can never open
+  your mail by itself. A mistyped sheet is named, not silently accepted.
+  Built on Privy's audited `shamir-secret-sharing`.
 
 ## 0.6.2 — 2026-10-03
 

@@ -8,6 +8,7 @@ open-source components, which keep their own licenses.
 | Component | License | Role |
 |---|---|---|
 | [OpenPGP.js](https://github.com/openpgpjs/openpgpjs) | LGPL-3.0-or-later | every OpenPGP operation |
+| [shamir-secret-sharing](https://github.com/privy-io/shamir-secret-sharing) | Apache-2.0 | the 2-of-3 recovery split (`src/recoveryshares.ts`) |
 | [@tauri-apps/api](https://github.com/tauri-apps/tauri) and plugins (dialog, fs, http) | MIT OR Apache-2.0 | bridge to the desktop shell |
 
 OpenPGP.js is LGPL. To honour the LGPL's relinking requirement it is built
