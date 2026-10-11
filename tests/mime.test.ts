@@ -437,6 +437,17 @@ describe('looksLikeMimeEntity', () => {
     // a letter that merely TALKS about headers is not an entity
     expect(mime.looksLikeMimeEntity('Note: set Content-Type: text/html in your config')).toBe(false);
   });
+
+  it('accepts a full internet message whose transport headers push Content-Type past 2 KB (the re-seal payload)', () => {
+    const sig = 'DKIM-Signature: v=1; a=rsa-sha256; d=gmail.com; b=' + 'A'.repeat(900) + '\r\n';
+    const msg = 'Received: from mail-wr1.google.com by mx; Mon, 1 Sep 2026 10:00:00 +0000\r\n'
+      + sig + 'ARC-Seal: i=1; ' + 'B'.repeat(900) + '\r\n' + 'ARC-Message-Signature: ' + 'C'.repeat(900) + '\r\n'
+      + 'From: a@gmail.com\r\nSubject: hi\r\nContent-Type: text/plain\r\n\r\nbody';
+    expect(msg.indexOf('Content-Type')).toBeGreaterThan(2048);   // the old window missed it
+    expect(mime.looksLikeMimeEntity(msg)).toBe(true);
+    // the content-type must sit in the HEADER BLOCK: the same text only in the body is not one
+    expect(mime.looksLikeMimeEntity('From: a@b.c\r\nSubject: x\r\n\r\nContent-Type: text/plain')).toBe(false);
+  });
 });
 
 describe('buildEncryptedMessage (outer RFC 3156 shell)', () => {

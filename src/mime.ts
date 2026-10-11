@@ -296,9 +296,15 @@ export function buildMimeEntity(src: {
 // ---------- parse ----------
 
 /** True when a decrypted payload looks like a MIME entity rather than the
- *  legacy bare text/HTML the older sealer produced. */
+ *  legacy bare text/HTML the older sealer produced. The Content-Type is
+ *  looked for in the whole header block (to the first blank line, capped),
+ *  not a fixed 2 KB window: the re-seal lane's payload is a full original
+ *  message, and a letter that crossed the open internet opens with
+ *  Received / ARC / DKIM headers that run well past 2 KB before its
+ *  Content-Type. */
 export function looksLikeMimeEntity(payload: string): boolean {
-  const head = payload.slice(0, 2048);
+  const blank = payload.search(/\r?\n\r?\n/);
+  const head = payload.slice(0, blank === -1 ? 2048 : Math.min(blank + 1, 65536));
   return /^(?:[!-9;-~]+:[^\n]*\r?\n)+/.test(head) && /^content-type:/im.test(head);
 }
 
