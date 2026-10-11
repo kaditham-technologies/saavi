@@ -1,7 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — 2026-10-11
 
+- **Sealing stored letters, byte for byte.** A new core function,
+  `encryptBytesArmored`, encrypts raw bytes to an armored OpenPGP message
+  as a binary literal — never line-ending-normalized, never charset-
+  decoded — so a stored letter's exact RFC 5322 bytes can be sealed inside
+  a PGP/MIME wrapper and come back identical. The round trip is pinned in
+  tests against CRLF, NUL and latin-1 high bytes.
+- **A re-sealed internet letter opens as a letter.** `looksLikeMimeEntity`
+  now looks for the Content-Type in the whole header block (to the first
+  blank line, capped at 64 KB), not a fixed 2 KB window — a letter that
+  crossed the open internet opens with Received / ARC / DKIM headers that
+  run well past 2 KB, and its decrypted payload was about to render as
+  raw text.
 - **A wrong password says which password to use.** The keychain now says
   "Use the password you sign in with — or, for a key made with its own
   passphrase, that passphrase", matching Kaditham Mail. The keychain
@@ -12,6 +24,11 @@
   rebuild it; one alone reveals nothing, so the provider can never open
   your mail by itself. A mistyped sheet is named, not silently accepted.
   Built on Privy's audited `shamir-secret-sharing`.
+- Dependencies: `source-map-js` 1.2.1 → 1.2.2 (GHSA-68fv-2mgg-jv7q,
+  build-time only, via vite → postcss).
+
+Version parity: from 0.7.0, Saavi and Kaditham Mail release in lockstep —
+the webmail's version always names the core it vendors.
 
 ## 0.6.2 — 2026-10-03
 
