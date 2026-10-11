@@ -617,6 +617,17 @@ export async function encryptText(text: string, armoredPublicKeys: string[], sig
   }));
 }
 
+/** Encrypt raw bytes to an ARMORED message, unsigned — for sealing stored
+ *  data (a letter's exact RFC 5322 bytes) inside a PGP/MIME wrapper, where
+ *  byte fidelity matters: a binary literal is never line-ending-normalized
+ *  or charset-decoded, so decryptBytes returns what went in, byte for byte.
+ *  (encryptBytes below is its binary-output, optionally-signed sibling.) */
+export async function encryptBytesArmored(data: Uint8Array, armoredPublicKeys: string[]): Promise<string> {
+  const encryptionKeys = await Promise.all(armoredPublicKeys.map((k) => openpgp.readKey({ armoredKey: k })));
+  const message = await openpgp.createMessage({ binary: data });
+  return String(await openpgp.encrypt({ message, encryptionKeys }));
+}
+
 export function looksEncrypted(text: string): boolean {
   return text.includes('-----BEGIN PGP MESSAGE-----');
 }

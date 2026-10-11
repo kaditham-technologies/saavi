@@ -125,6 +125,25 @@ describe('seal / unseal', () => {
     void other;
   });
 
+  it('round-trips raw bytes exactly — no line-ending or charset mangling', async () => {
+    await pgp.generateKeys(ME, 'Me', PASS);
+    // CRLF, a bare LF, a NUL and latin-1 high bytes: everything a stored
+    // letter's exact bytes may carry that a text literal would re-encode.
+    const data = new Uint8Array([
+      0x53, 0x75, 0x62, 0x6a, 0x0d, 0x0a,   // "Subj\r\n"
+      0x0a, 0x00, 0xe9, 0xff, 0x80, 0x0d,   // lone LF, NUL, é in latin-1, high bytes, lone CR
+    ]);
+    const sealed = await pgp.encryptBytesArmored(data, [pgp.keysFor(ME)!.publicKey]);
+    expect(pgp.looksEncrypted(sealed)).toBe(true);
+    const sealedBytes = new TextEncoder().encode(sealed);
+    await expect(pgp.decryptBytes(sealedBytes)).rejects.toThrow('locked');
+    await pgp.unlockPrivateKey(ME, PASS);
+    const out = await pgp.decryptBytes(sealedBytes);
+    expect([...out.data]).toEqual([...data]);
+    // unsigned on purpose: sealing stored data vouches for nothing
+    expect(out.signatures).toEqual([]);
+  });
+
   it('signs with the unlocked sender and the recipient can verify it', async () => {
     await pgp.generateKeys(ME, 'Me', PASS);
     await pgp.unlockPrivateKey(ME, PASS);
