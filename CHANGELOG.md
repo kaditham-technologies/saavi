@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1 — 2026-10-11
+
+- **0.7.0, done right.** The v0.7.0 release's binaries identified
+  themselves as 0.6.2: the app's own version (src-tauri/tauri.conf.json)
+  was never bumped, only package.json — so updaters met a release whose
+  manifest and contents disagreed, and macOS fell back to asking for a
+  manual download. 0.7.1 is the same code with the version carried
+  everywhere it lives. No other changes.
+
 ## 0.7.0 — 2026-10-11
 
 - **Sealing stored letters, byte for byte.** A new core function,
