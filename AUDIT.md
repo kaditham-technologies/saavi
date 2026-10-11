@@ -1,0 +1,760 @@
+# Saavi Repository Audit
+
+Date: 2026-10-11
+Repository: https://github.com/kaditham-technologies/saavi
+
+## Executive summary
+
+Saavi is a desktop OpenPGP app designed to let users generate, import, manage, and use OpenPGP keys locally. The project is built as a TypeScript frontend with a Tauri/Rust shell and a strong emphasis on local-key trust boundaries, user-controlled key storage, and native OS integration.
+
+Overall assessment: this is a strong, security-aware project with a credible architecture and above-average engineering discipline for a crypto desktop tool. It is not audit-clean, but it is clearly a project that has already done significant hardening work and has documented the remaining gaps honestly.
+
+## What the repo is
+
+The repository description states:
+
+> Friendly desktop OpenPGP: encrypt letters (PGP/MIME), sign, verify, and manage keys — works with your existing GnuPG keyring.
+
+The README reinforces this with a clear product positioning: Saavi is a local desktop app for OpenPGP keys and sealed text, intended to keep keys on-device and avoid browser-based key handling. It supports two keyring sources:
+
+- Saavi’s own passphrase-protected local store (default)
+- System GnuPG keyring (optional mode)
+
+## Stack
+
+- Languages: TypeScript (primary), Rust (native layer), CSS/HTML
+- Runtime/framework: Tauri 2 desktop app + Vite frontend
+- Key libraries: OpenPGP.js, Tauri plugins, GnuPG bridge via Rust, OS keychain integration
+
+## Architecture overview
+
+The codebase is arranged around a clear separation of concerns:
+
+- `src/` contains the user-facing desktop app logic, key ring operations, signature handling, WKD/VKS lookups, and UI interactions.
+- `src-tauri/` contains the native shell logic, GnuPG invocation layer, updater, keychain integration, and file-dialog protections.
+- `tests/` contains broad automated coverage for key handling, MIME, pgp operations, disk store and pinning logic.
+- `docs/` contains security, roadmap, parity, and deployment docs.
+
+The most important architectural fact is that the app deliberately separates:
+
+- Saavi’s own key store
+- the system GnuPG keyring
+- OS-managed secret storage
+- recipient validation and fingerprint pinning
+
+This is a good sign in a crypto project because it makes the trust model explicit rather than implicit.
+
+## Security posture
+
+This is the strongest area of the repo.
+
+### What the project does well
+
+- Clearly documents trust boundaries in the README.
+- Keeps private keys passphrase-protected at rest.
+- Uses local-device key generation and local-only storage by default.
+- Implements recipient key pinning so key changes are not silently accepted.
+- Promotes fingerprint review before accepting a new recipient key.
+- Uses system GnuPG only as a native shell wrapper, not by reimplementing OpenPGP in Rust.
+- Validates GnuPG inputs before they become command arguments.
+- Restricts native file access and confirms file actions before reading or writing sensitive content.
+- Uses OS-native dialogs for file selection and important state-changing system actions.
+
+### Evidence from the codebase
+
+The README explicitly explains:
+
+- Keys are generated on the device and never leave the device except as user-managed backup files.
+- Private keys are passphrase-locked at rest.
+- Unlocked keys exist only in process memory and are auto-locked after idle time.
+- Recipient keys are pinned, and if a key changes, the seal stops until the new fingerprint is accepted.
+- Only public keys travel over the network.
+- System GnuPG mode relies on the user’s own GPG installation and trust model.
+
+The Tauri Rust layer also demonstrates careful handling of real-world OS-level concerns, including:
+
+- `gpg.rs` validates recipients and fingerprints before invoking GnuPG
+- file paths passed from the frontend are guarded through native confirmation flows
+- drag/drop file paths are tracked via the shell itself rather than trusting the webview alone
+- important system keyring actions require native confirmation dialogs
+
+## Build and release quality
+
+### Frontend and build tooling
+
+`package.json` reflects a modern frontend setup:
+
+- Vite for build
+- TypeScript noEmit + build step
+- Vitest for unit tests
+- Playwright for e2e tests
+- Node >= 22 requirement
+
+### CI pipeline
+
+The GitHub Actions workflow is robust and relevant to the project:
+
+- frontend build
+- unit tests
+- e2e tests
+- npm audit and cargo audit
+- Linux shell build
+- manual multi-platform desktop build workflow
+
+This is more mature than a typical simple desktop app pipeline.
+
+### Release process
+
+The release workflow is unusually serious for a desktop app:
+
+- extracts release notes from `CHANGELOG.md`
+- requires a GPG signing secret
+- signs release assets and checksums
+- publishes SHA256SUMS and related metadata
+- prepares signed distribution metadata for the download page
+- supports in-app updater flow with a public signing key
+
+This is a strong release discipline signal.
+
+## Test coverage
+
+The repo has substantial test coverage for core behaviors, including:
+
+- keyring operations
+- import/export flows
+- pinning logic
+- MIME handling
+- PGP encryption/decryption
+- key changes and rotation
+- WKD lookup behavior
+- disk store behavior
+
+The presence of both unit tests and browser e2e tests is a major positive signal.
+
+## Known gaps and remaining risks
+
+The project does not hide its remaining issues. The repo’s own `TODO.md` lists them clearly.
+
+### Important outstanding items
+
+1. Protected headers beyond Subject are still a known gap
+   - This is a real mail-integrity concern.
+   - The project explicitly notes it as a remaining security issue.
+
+2. Import address validation remains incomplete
+   - The code can import a key under a typed email, but it still notes a risk that the key should be checked against the address it is being filed under.
+
+3. Build-time supply-chain verification is still incomplete
+   - The project notes that a Tauri build path still fetches a binary mid-build without a fully verifiable pinned checksum in the repo’s own code path.
+
+4. RustSEC warnings remain documented
+   - These are tracked as Tauri/gtk-rs related warnings rather than direct app-code vulnerabilities.
+
+5. Lint/formatter setup is still missing from CI
+   - This is more maintainability than crypto, but still relevant.
+
+6. Release/distribution hardening still has some missing items
+   - reproducible builds
+   - Apple/Windows signing and notarization
+   - public download page integration
+   - broader release reliability work
+
+## Overall audit verdict
+
+### Strengths
+
+- Thoughtful security model and threat documentation
+- Clear separation between app store and system GnuPG mode
+- Strong Tauri + Rust architecture for native desktop integration
+- Good test coverage and CI discipline
+- Mature release signing and verification workflow
+- Clear public acknowledgement of open issues rather than hiding them
+
+### Weaknesses
+
+- Not yet fully closed on all major security audit items
+- Some supply-chain and build trust concerns remain
+- Some product quality / maintenance tooling is still incomplete
+- A few crypto-integrity issues are still known and tracked
+
+### Final assessment
+
+Saavi is a serious, well-structured desktop OpenPGP project with a strong security posture and good engineering discipline. It is not “finished-hardening” status yet, but it is clearly one of the more mature and security-conscious open-source crypto desktop apps in this space.
+
+If you want a concise score:
+
+- Security: Strong
+- Architecture: Solid
+- Release quality: Strong
+- Testing: Good
+- Remaining hardening work: Real but documented
+
+## Recommended next actions
+
+- Close the remaining high-value security issues in `TODO.md`, especially the protected-header and import validation items.
+- Reduce or eliminate the build-time binary fetch risk.
+- Finish lint/formatter CI enforcement.
+- Continue on OS signing / notarization work for distribution trust.
+- Re-test app release flows on a tagged release to validate the full signing and metadata pipeline end-to-end.
+
+## Conclusion
+
+Saavi is an ambitious and thoughtful crypto desktop app with genuine attention to security. The code and project docs show that the maintainers are aware of the risks and have built a strong baseline, but there are still meaningful hardening items left to close before it can be considered fully audit-complete.
+
+---
+
+This audit reflects the repository’s actual structure, CI, security docs, and code-level conventions observed during review of the project as of 2026-10-11.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+content should be valid markdown with no weird formatting artifacts.
