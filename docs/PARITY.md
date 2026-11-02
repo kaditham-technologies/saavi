@@ -9,7 +9,8 @@ them from drifting.
 `src/pgp.ts` (keystore + every OpenPGP operation), `src/wkd.ts`
 (WKD lookup), `src/pins.ts` (recipient key pinning) and — since 0.6.0 —
 `src/mailkeychain.ts` (the Kaditham Mail keychain client; the webmail's
-`src/keychain.ts`) are owned HERE. `mailkeychain.ts` reaches the network
+`src/keychain.ts`) are owned HERE. Since 2026-11-02 `src/keymatch.ts` (the key check's verdict) is
+core too: the webmail vendors it and draws its own words around it. `mailkeychain.ts` reaches the network
 only through `./server` (`apiUrl`/`netFetch`), which each app provides,
 and writes rings only through `pgp.installRing`/`uninstallRing`.
 
@@ -89,18 +90,18 @@ below.
 | Suggested passphrase (6 EFF words) + strength read | ✓ | ✓ | core (`passphrase.ts`, `wordlist.ts`); shown in clear, "Use my own" opts out |
 | Recipient key pinning (TOFU) | ✓ (device scope) | ✓ (per signed-in account) | core (`pins.ts`); policy shared, prompts are per-app |
 | Withdrawn recipient key holds the send | ✓ | ✓ | core (`pins.ts` `withdrawn`); never downgrades to plaintext |
-| Revoked/unusable recipient key refused | ✓ | needs sync | core (`pgp.ts` `keyState`), checked on every seal |
+| Revoked/unusable recipient key refused | ✓ | ✓ (`pins.ts` checks `keyState` on every seal) | core (`pgp.ts` `keyState`), checked on every seal |
 | Named themes (Paper…Phosphor) | ✓ | ✓ | shared palette family, not shared code |
-| Protected headers: From/To/Cc/Date/Message-ID inside the signature (H2) | core ✓, app n/a | needs wiring | core (`mime.ts`); the webmail must pass the same values it puts outside, and attribute from the signed copies — see `docs/H2-PROTECTED-HEADERS.md` |
+| Protected headers: From/To/Cc/Date/Message-ID inside the signature (H2) | core ✓, app n/a | ✓ (both send paths pass From/To/Cc/Date/Message-ID) | core (`mime.ts`); the webmail must pass the same values it puts outside, and attribute from the signed copies — see `docs/H2-PROTECTED-HEADERS.md` |
 | Paste-a-public-key recipient | ✓ | ✓ | armor normalized in core (single-line paste); pinned under its PRIMARY address only |
 | Kaditham directory + WKD publish | ✓ (mail-confirm link) | ✓ (automatic, bearer-authed at key creation) | service feature, not core; app proves ownership via `/signup/api/wkd/publish` confirmation mail |
 | Zero-access storage toggle | n/a | ✓ (Settings) | server feature |
 | Account identities as addresses | ✓ (0.6.2: broker list ∪ identities, primary first) | identities only — port queued for the release after 0.5.0 | two sets since 0.6.2 (`account.ts` `addresses()`): **bring** = `/signup/api/me` addresses (disabled aliases kept) ∪ login ∪ `Identity/get`, primary first; **push** = login ∪ `Identity/get` (the broker's `accountAddressSet` — anything else 403s, and dropping a marker address wedges the no-shrink guard). `Identity/get` lists only minted identities, so an alias holding the user's key was invisible (0.6.0's "only khree@ is known") |
-| Primary address first; signs as primary by default | ✓ (0.6.2) | not yet (same port) | primary = the `primary: true` entry in `/signup/api/me`; a user's own pick of Sign as wins |
+| Primary address first; signs as primary by default | ✓ (0.6.2) | ✓ (`addresses.ts`, 9ffc122 port) | primary = the `primary: true` entry in `/signup/api/me`; a user's own pick of Sign as wins |
 | Unlock-engine failure is never "wrong passphrase" | ✓ (0.6.1, `dfc85ab`) | ✓ (`aa1ad95`, live in 0.5.0; core-synced from the next release) | `ENGINE_FAILURE` checked before the passphrase classifier. Saavi's CSP also needed `'wasm-unsafe-eval'` for Argon2-locked (webmail-made) keys — shell-only, the browser already allowed it |
 | Sign in with Kaditham Mail; keychain restore + sync | ✓ (0.6.0) | ✓ | core (`mailkeychain.ts`); Saavi's sign-in is `account.ts` (client id `kaditham-saavi`) |
-| Published-key match check (local · WKD · keychain) | ✓ (0.6.0) | not yet | app-side; warn only |
-| Where your keys live (keychain devices + app passwords) | ✓ (0.6.0) | partial (app passwords in Settings) | broker `GET /signup/api/keychain/devices` |
+| Published-key match check (local · WKD · keychain) | ✓ (0.6.0) | ✓ (0.7.1-9: key details card; `keymatch.ts` vendored) | app-side; warn only |
+| Where your keys live (keychain devices + app passwords) | ✓ (0.6.0) | ✓ (0.7.1-9: Settings → Security, devices above app passwords) | broker `GET /signup/api/keychain/devices` |
 | Approved device: open sealed mail with no password, no wait | n/a (the OS keychain does this job) | ✓ (0.5.0, live 2026-10-03) | webmail-only: unlocked keys sealed under a non-extractable IndexedDB key + broker-held share; see the webmail's `docs/APPROVED-DEVICE.md` |
 | OS keychain | ✓ | n/a (browser) | the reason Saavi exists; 0.6.0 also keeps the account's refresh token there |
 | Sealed on-disk key store (ring bundle) | ✓ (shell; 0.5.0) | n/a (browser keeps localStorage) | core carries the bundle format + `RingStore` backend hook (`bundle.ts`, `pgp.ts`); the disk mirror and migration are Saavi-only (`diskstore.ts`, `store.rs`) |
